@@ -48,7 +48,7 @@ const InitialLayout = () => {
     };
     checkOnboardingStatus();
 
-  }, [params]);
+  }, []);
 
   useEffect(() => {
     if (fontError) {

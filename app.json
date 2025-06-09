@@ -13,7 +13,14 @@
       "bundleIdentifier": "com.greenity.UniTree",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "UniTree needs access to your location to accurately detect if you are connected to the School WiFi network. This helps in awarding points for your connection time.",
-        "ITSAppUsesNonExemptEncryption": false
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "UniTree uses your location in the background to monitor your connection to the School WiFi network and award points, even when the app is closed.",
+        "NSLocationAlwaysUsageDescription": "This app uses background location access to track your connection time to the School WiFi and reward you accordingly.",
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIBackgroundModes": [
+          "location",
+          "fetch",
+          "processing"
+        ]
       }
     },
     "android": {

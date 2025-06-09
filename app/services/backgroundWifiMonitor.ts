@@ -3,6 +3,7 @@ import NetInfo from '@react-native-community/netinfo';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import * as TaskManager from 'expo-task-manager';
+import { Platform } from 'react-native';
 import { SCHOOL_WIFI_BSSIDS, SCHOOL_WIFI_SSIDS } from '../constants/Config';
 import { supabase } from './supabase';
 
@@ -93,7 +94,14 @@ TaskManager.defineTask(WIFI_MONITOR_TASK_NAME, async ({ data, error }) => {
     let currentSsid: string | null = null;
     let currentBssid: string | null = null;
 
-    if (netInfoState.isConnected && netInfoState.type === 'wifi' && netInfoState.details) {
+    if (Platform.OS === 'ios') {
+      const location = await Location.getNetworkStateAsync();
+      if(location && location.type === 'wifi') {
+        currentSsid = location.ssid;
+        currentBssid = location.bssid;
+      }
+    }
+    else if (netInfoState.isConnected && netInfoState.type === 'wifi' && netInfoState.details) {
       currentSsid = netInfoState.details.ssid || null; 
       currentBssid = netInfoState.details.bssid || null;
     }

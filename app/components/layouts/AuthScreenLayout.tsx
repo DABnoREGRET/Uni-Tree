@@ -39,27 +39,34 @@ const AuthScreenLayout: React.FC<AuthScreenLayoutProps> = ({
         showsVerticalScrollIndicator={false}
       >
         <View style={[styles.topContentContainer, {paddingTop: insets.top + 20}]}>
-          {/* App Logo/Name at the top */} 
-          <Image 
-            source={require('../../../assets/images/appname.png')} 
-            style={styles.appLogoImage}
-            resizeMode="contain"
-          />
-          {topTitle && <Text style={styles.helloTitle}>{topTitle}</Text>}
-          {topSubtitle && <Text style={styles.loginSubtitle}>{topSubtitle}</Text>}
+          {/* Top Section */}
+          <View style={styles.headerSection}>
+            <View style={styles.headerTextContainer}>
+              <Image 
+                source={require('../../../assets/images/appname.png')} 
+                style={styles.appLogoImage}
+                resizeMode="contain"
+              />
+              {topTitle && <Text style={styles.helloTitle}>{topTitle}</Text>}
+              {topSubtitle && <Text style={styles.loginSubtitle}>{topSubtitle}</Text>}
+            </View>
+            {showMascot && (
+              <View style={styles.mascotContainer}>
+                <Image 
+                  source={mascotImageSource || require('../../../assets/images/greet_mascot.png')}
+                  style={styles.mascotImage}
+                  resizeMode="contain"
+                />
+              </View>
+            )}
+          </View>
         </View>
 
-        {showMascot && (
-          <View style={styles.mascotContainer}>
-            <Image 
-              source={mascotImageSource || require('../../../assets/images/greet_mascot.png')} // Use prop or default
-              style={styles.mascotImage}
-              resizeMode="contain"
-            />
-          </View>
-        )}
+        {/* Spacer View */}
+        <View style={{flex: 1}} />
 
-        <View style={[styles.formContainer, { backgroundColor: formBackgroundColor }]}>
+        {/* Form Section */}
+        <View style={[styles.formContainer, { backgroundColor: formBackgroundColor, paddingBottom: insets.bottom + 20 }]}>
           <Text style={styles.mainFormTitle}>{formTitle}</Text>
           {children}
         </View>
@@ -77,23 +84,30 @@ const styles = StyleSheet.create({
   },
   scrollContainer: {
     flexGrow: 1,
+    justifyContent: 'space-between',
   },
   topContentContainer: {
-    alignItems: 'flex-start',
-    paddingBottom: 20,
     width: '100%',
-    paddingLeft: 25,
-    // backgroundColor: 'rgba(255,0,0,0.1)', // Debug
+    paddingHorizontal: 25,
+  },
+  headerSection: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    width: '100%',
+    minHeight: 220, // Ensures enough space on smaller screens
+  },
+  headerTextContainer: {
+    flex: 1, // Allows text to take available space
+    paddingTop: 20, // Adjust as needed
   },
   appLogoImage: {
     width: 150, 
     height: 60, 
-    marginTop: 10, 
     marginBottom: 20, 
-    alignSelf: 'flex-start',
   },
   helloTitle: {
-    fontSize: FontSizes.xxxl + 4, 
+    fontSize: FontSizes.xxxl + 2, 
     fontFamily: Fonts.Grandstander.Bold,
     color: Colors.white,
     textAlign: 'left',
@@ -104,19 +118,17 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.Poppins.Regular,
     color: Colors.white,
     textAlign: 'left',
-    marginBottom: 10, 
+    marginBottom: 10,
+    flexWrap: 'wrap',
   },
   mascotContainer: {
-    position: 'absolute',
-    top: '22%',
-    right: '5%',
-    zIndex: 1, 
+    justifyContent: 'center',
     alignItems: 'center',
-    // backgroundColor: 'rgba(0,255,0,0.1)', // Debug
+    marginTop: 10, // Adjust to position it vertically relative to the text
   },
   mascotImage: {
-    width: 180, 
-    height: 180, 
+    width: 160, 
+    height: 160, 
   },
   formContainer: {
     width: '100%',
@@ -124,11 +136,8 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 40,
     paddingHorizontal: 25, 
     paddingTop: 40,
-    paddingBottom: Platform.OS === 'ios' ? 30 : 40, 
     alignItems: 'center',
-    flexGrow: 1,
-    position: 'relative',
-    // backgroundColor: 'rgba(0,0,255,0.1)', // Debug
+    // No flexGrow or position relative needed anymore
   },
   mainFormTitle: {
     fontSize: FontSizes.xxxl,

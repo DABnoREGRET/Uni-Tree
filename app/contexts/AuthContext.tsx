@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js'; // Import types directly
+import * as Linking from 'expo-linking';
 import { deleteItemAsync, setItemAsync } from 'expo-secure-store';
 import React, { createContext, ReactNode, useContext, useEffect, useState } from 'react';
 import { Alert, AppState } from 'react-native';
@@ -11,7 +12,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   signInWithEmail: (email: string, password: string) => Promise<{ error: any }>;
-  signUpWithEmail: (email: string, password: string, username: string, studentId?: string | null, avatarUrl?: string) => Promise<{ error: any }>;
+  signUpWithEmail: (email: string, password: string, username: string, studentId?: string | null, avatarUrl?: string) => Promise<{ data: { user: User | null; session: Session | null; }; error: any; }>;
   signOut: () => Promise<{ error: any }>;
   changePassword: (newPassword: string) => Promise<{ error: any }>;
   verifyPassword: (currentPassword: string) => Promise<{ verified: boolean; error: any }>;
@@ -106,18 +107,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         },
       },
     });
-    if (error) {
-      console.error("Sign up error:", error.message);
-    } else if (data.session) {
-        // Sign up successful, user is logged in
-        console.log('Sign up successful, session created.');
-    } else if (data.user && !data.session) {
-        // Sign up successful but requires email confirmation
-        Alert.alert("Sign Up Successful", "Please check your email to confirm your account.");
-    }
-    // Session and user state will be updated by onAuthStateChange if signup is auto-confirmed or after confirmation
+    
     setIsLoading(false);
-    return { error };
+    return { data, error };
   };
 
   const signOut = async () => {
@@ -169,18 +161,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const changePassword = async (newPassword: string) => {
-    if (!user) {
-      // This case is for an authenticated user trying to change their own password
-      // For recovery flow, a session exists, so a user object should also exist.
-      return { error: { message: "User not authenticated." } };
-    }
     setIsLoading(true);
     const { data, error } = await supabase.auth.updateUser({ password: newPassword });
     
     if (error) {
       console.error("Change password error:", error.message);
-      // We are now returning the error to be handled by the calling component.
-      // No Alert here.
     }
 
     setIsLoading(false);
@@ -193,7 +178,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     // For Expo Go development, this might be like: 'exp://127.0.0.1:8081/--/update-password'
     // For production, use your custom scheme: 'yourappscheme://update-password'
     // This URL must be added to your Supabase project's "Redirect URLs" in Auth > URL Configuration.
-    const redirectTo = 'exp://127.0.0.1:8081/--/update-password'; // Placeholder - CONFIGURE THIS!
+    const redirectTo = Linking.createURL('/(auth)/update-password');
     const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo,
     });

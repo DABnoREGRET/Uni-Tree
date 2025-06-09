@@ -92,7 +92,7 @@ export default function RegisterScreen() {
     setErrors({ username: '', email: '', studentId: '', password: '', confirmPassword: '' });
     setIsSigningUp(true);
     try {
-      const { error } = await signUpWithEmail(email, password, username, studentId);
+      const { data, error } = await signUpWithEmail(email, password, username, studentId);
       
       if (error) {
         const newApiErrors = { ...newErrors };
@@ -108,7 +108,12 @@ export default function RegisterScreen() {
             Alert.alert("Registration Failed", errorMessage);
         }
         setErrors(newApiErrors);
+      } else if (data.user && !data.session) {
+        // This case handles when "Confirm email" is enabled in Supabase project settings
+        Alert.alert("Registration Successful", "Please check your email to confirm your account.");
+        router.replace('/(auth)/login'); // Redirect to login after showing the message
       }
+      // If there's a session, the root layout will handle navigation automatically.
     } catch (error: any) {
       console.error("Sign up process error:", error);
       Alert.alert("Registration Error", error.message || "An unexpected error occurred during sign up.");
