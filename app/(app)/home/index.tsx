@@ -1,0 +1,691 @@
+import { FontAwesome } from '@expo/vector-icons'; // Or other icon library
+import NetInfo from '@react-native-community/netinfo';
+import * as Haptics from 'expo-haptics';
+import { Stack, useRouter } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, AppState, Dimensions, Image, Linking, Platform, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ScreenWrapper } from '../../components/layouts';
+import { Colors, Fonts, FontSizes } from '../../constants';
+import { SCHOOL_WIFI_BSSIDS, SCHOOL_WIFI_SSIDS, TREE_COST_POINTS } from '../../constants/Config';
+import { useUserData } from '../../contexts/UserDataContext';
+import { useConnectionTimer } from '../../hooks/useConnectionTimer';
+import { formatPoints } from '../../utils';
+import { scheduleLocalNotification } from '../../utils/notifications';
+import { getTreeImageForLevel } from '../../utils/treeUtils';
+
+const screenWidth = Dimensions.get("window").width;
+
+
+interface DailyTimeProgressProps {
+  day: string;
+  connectedTime: number; // in minutes
+  targetTime: number; // in minutes
+  size?: number;
+}
+
+
+
+export default function HomeScreen() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { 
+    userProfile, 
+    userStats, 
+    isLoading, 
+    fetchUserData, 
+    sessionStartTime,
+    startWifiSession,
+    endWifiSession,
+  } = useUserData();
+  const [refreshing, setRefreshing] = useState(false);
+  const [isConnectedToSchoolWifi, setIsConnectedToSchoolWifi] = useState(false);
+  const [currentSsid, setCurrentSsid] = useState<string | null>(null);
+  const [wifiLoading, setWifiLoading] = useState(true);
+  const [previousConnectionState, setPreviousConnectionState] = useState<boolean | null>(null);
+  
+  // Use the centralized timer hook
+  const { timeConnectedTodayDisplay, pointsToday } = useConnectionTimer();
+
+  const checkWifiStatus = useCallback(async () => {
+    setWifiLoading(true);
+    try {
+      const netInfoState = await NetInfo.fetch();
+      let isConnectedNow = false;
+      if (netInfoState.isConnected && netInfoState.type === 'wifi' && netInfoState.details) {
+        const { ssid, bssid } = netInfoState.details;
+        setCurrentSsid(ssid || null);
+        const isSchoolSsid = ssid ? SCHOOL_WIFI_SSIDS.includes(ssid) : false;
+        const isSchoolBssid = bssid ? SCHOOL_WIFI_BSSIDS.includes(bssid.toLowerCase()) : false;
+        isConnectedNow = isSchoolSsid || isSchoolBssid;
+        setIsConnectedToSchoolWifi(isConnectedNow);
+      } else {
+        setIsConnectedToSchoolWifi(false);
+        setCurrentSsid(null);
+      }
+
+      // --- Session Management Logic ---
+      if (isConnectedNow) {
+        if (!sessionStartTime) {
+          console.log('[Home] Starting new WiFi session...');
+          await startWifiSession();
+          // Only notify when actually connecting (not on initial check)
+          if (previousConnectionState === false) {
+            scheduleLocalNotification({
+              title: "WiFi Session Started",
+              body: "Your UniTree timer is now running!",
+            });
+          }
+        }
+      } else {
+        if (sessionStartTime) {
+          console.log('[Home] Ending WiFi session...');
+          await endWifiSession();
+          // Only notify when actually disconnecting (not on initial check)
+          if (previousConnectionState === true) {
+            scheduleLocalNotification({
+              title: "WiFi Session Ended",
+              body: "You've disconnected from the school WiFi. Your timer has paused.",
+            });
+          }
+        }
+      }
+
+      // Update previous state after handling notifications
+      setPreviousConnectionState(isConnectedNow);
+
+    } catch (error) {
+      // Avoid alerting for connection checks, as they can happen frequently.
+      // A silent console log is better here.
+      console.error("Silent Check: Failed to check WiFi status:", error);
+      if (isConnectedToSchoolWifi) setIsConnectedToSchoolWifi(false);
+      if (currentSsid) setCurrentSsid(null);
+    } finally {
+      setWifiLoading(false);
+    }
+  }, [sessionStartTime, startWifiSession, endWifiSession, previousConnectionState]);
+
+  useEffect(() => {
+    checkWifiStatus(); // Initial check
+    
+    // Subscribe to network state changes
+    const unsubscribe = NetInfo.addEventListener(state => {
+      console.log("Network state changed:", state.type, state.isConnected);
+      checkWifiStatus();
+    });
+
+    const appStateSubscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        checkWifiStatus();
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      appStateSubscription.remove();
+    };
+  }, [checkWifiStatus]);
+
+  // Timer logic is now handled by useConnectionTimer hook
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([fetchUserData(), checkWifiStatus()]);
+    } catch (error) {
+      console.error("Failed to refresh home screen:", error);
+    }
+    setRefreshing(false);
+  }, [fetchUserData, checkWifiStatus]);
+
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return `Good Morning,`;
+    if (hour < 18) return `Good Afternoon,`;
+    return `Good Evening,`;
+  };
+  
+  const getUserFirstName = () => {
+    return userProfile?.name ? userProfile.name.split(' ')[0] : 'User';
+  }
+
+  const handleNotificationPress = () => {
+    router.push('/(app)/notifications');
+  };
+
+  const handleWifiSettingsPress = () => {
+    if (Platform.OS === 'ios') {
+      Linking.openURL('App-Prefs:WIFI');
+    } else {
+      Linking.sendIntent('android.settings.WIFI_SETTINGS');
+    }
+  };
+
+
+
+  if (isLoading && !userProfile && !userStats) {
+    return (
+      <ScreenWrapper withScrollView={false} style={styles.loadingContainer}>
+        <Stack.Screen options={{ headerRight: () => null, headerShown: false }} />
+        <ActivityIndicator size="large" color={Colors.primary} />
+        <Text style={styles.loadingText}>Loading Dashboard...</Text>
+      </ScreenWrapper>
+    );
+  }
+
+  if (!userProfile || !userStats) {
+    return (
+      <ScreenWrapper withScrollView={false} style={styles.errorContainer}>
+        <Stack.Screen options={{ headerRight: () => null, headerShown: false }} />
+        <FontAwesome name="exclamation-triangle" size={50} color={Colors.error} />
+        <Text style={styles.errorText}>Could not load dashboard data.</Text>
+        <Text style={styles.errorSubText}>Please check your connection or try again later.</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={fetchUserData}>
+          <Text style={styles.retryButtonText}>Try Again</Text>
+        </TouchableOpacity>
+      </ScreenWrapper>
+    );
+  }
+
+  return (
+    <View style={styles.screenWrapperBg}>
+      <Stack.Screen options={{ headerShown: false }} />
+      
+      {/* Custom Header */}
+      <View style={[
+        styles.customHeader,
+        { paddingTop: insets.top + 15, paddingBottom: 15 }
+      ]}>
+        <View style={styles.headerLeft}>
+          <Image 
+            source={{ uri: userProfile.avatarUrl || 'https://via.placeholder.com/60/FFFFFF/CCCCCC?text=' }} 
+            style={styles.headerAvatar} 
+          />
+          <View>
+            <Text style={styles.headerWelcomeText}>{getGreeting()}</Text>
+            <Text style={styles.headerUserNameText}>{getUserFirstName()}</Text>
+          </View>
+        </View>
+        <TouchableOpacity onPress={handleNotificationPress} style={styles.notificationButtonContainer}>
+          <FontAwesome name="bell-o" size={24} color={Colors.white} />
+        </TouchableOpacity>
+      </View>
+
+      <ScreenWrapper 
+        applyTopInset={false}
+        contentContainerStyle={styles.screenWrapperContent}
+        scrollViewProps={{
+          refreshControl: <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[Colors.primary]} />
+        }}
+      >
+        {/* WiFi Status - Can be integrated into a card or kept separate */}
+        <View style={styles.wifiStatusContainer}>
+          <TouchableOpacity 
+            onPress={handleWifiSettingsPress} 
+            style={styles.wifiStatusCard}
+            accessible={true}
+            accessibilityRole="button"
+            accessibilityLabel={`WiFi status: ${wifiLoading ? "Checking" : isConnectedToSchoolWifi ? "Connected to school WiFi" : "Not connected to school WiFi"}`}
+            accessibilityHint="Tap to open WiFi settings"
+          >
+            {wifiLoading ? (
+              <ActivityIndicator size="small" color={Colors.primary} style={styles.wifiIcon} />
+            ) : (
+              <FontAwesome 
+                name={isConnectedToSchoolWifi ? "wifi" : "times-circle"} 
+                size={FontSizes.lg} 
+                color={isConnectedToSchoolWifi ? Colors.successDark : Colors.errorDark}
+                style={styles.wifiIcon}
+              />
+            )}
+            <Text style={[styles.wifiStatusText, { color: isConnectedToSchoolWifi ? Colors.successDark : Colors.errorDark }]}>
+              {wifiLoading ? "Checking WiFi..." 
+              : isConnectedToSchoolWifi 
+                ? (currentSsid ? `Connected to ${currentSsid}` : `Connected to School WiFi`)
+                : currentSsid ? `Connected to ${currentSsid} (Not School WiFi)` 
+                : "Not connected to WiFi"}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            onPress={async () => {
+              await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              checkWifiStatus();
+            }} 
+            style={styles.refreshButton}
+            accessible={true}
+            accessibilityRole="button"
+            accessibilityLabel="Refresh WiFi status"
+            disabled={wifiLoading}
+          >
+            {wifiLoading ? (
+              <ActivityIndicator size="small" color={Colors.primary} />
+            ) : (
+              <FontAwesome name="refresh" size={20} color={Colors.primary} />
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {/* Main Content Grid */}
+        <View style={styles.mainContentGrid}>
+          {/* Left Column */}
+          <View style={styles.leftColumn}>
+            <TouchableOpacity style={[styles.gridCard, styles.pointsCard]} onPress={() => router.push('/(app)/redeem')}> 
+              <Text style={styles.cardTitle}>Total Points</Text>
+              <Text style={styles.pointsValue}>{formatPoints(userStats.totalPoints)}</Text>
+              <FontAwesome name="star" size={28} color={Colors.starYellow} style={styles.cardIconBottom} />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={[styles.gridCard, styles.treeStatusCard]} onPress={() => router.push('/(app)/tree')}>
+              <View style={styles.cardHeader}>
+                
+                <Text style={styles.cardTitle}>My UniTree</Text>
+              </View>
+              <Image source={getTreeImageForLevel(userStats?.treeLevel || 1)} style={styles.cardIconImage} />
+
+              <Text style={styles.treeLevelText}>Level {userStats.treeLevel}</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Right Column (Points This Week - static) */}
+          <View style={styles.rightColumn}>
+            <TouchableOpacity style={[styles.gridCard, styles.pointsChartCard]} onPress={() => router.push('/(app)/tree')}>
+              <Text style={styles.cardTitle}>Tree Progress</Text>
+              <View style={styles.verticalProgressContainer}>
+                <View style={styles.verticalProgressBarTrack}>
+                  <View style={[styles.verticalProgressBarFill, {height: `${Math.min((userStats.totalPoints / TREE_COST_POINTS) * 100, 100)}%`}]} />
+                </View>
+                <View style={styles.progressTextContainer}>
+                  <FontAwesome name="tree" size={30} color={Colors.primaryDark} />
+                  <Text style={styles.progressText}>{formatPoints(Math.min(userStats.totalPoints, TREE_COST_POINTS))} / {formatPoints(TREE_COST_POINTS)}</Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Forest Collection Navigation Card (Full Width) */}
+        <TouchableOpacity style={[styles.gridCard, styles.forestCardFullWidth]} onPress={() => router.push('/(app)/forest')}>
+          <FontAwesome name="tree" size={24} color={Colors.white} style={styles.forestIcon} />
+          <View style={styles.forestTextContainer}>
+              <Text style={styles.cardTitleWhite}>My Real Forest</Text>
+              <Text style={styles.forestCardText}>View your collection of real trees.</Text>
+          </View>
+          <FontAwesome name="arrow-right" size={20} color={Colors.white} />
+        </TouchableOpacity>
+        
+        {/* New Card for Points Earned Today and Time Connected Today */}
+        <View style={[styles.gridCard, styles.todayStatsCard]}>
+          <Text style={styles.cardTitle}>Today&apos;s Progress</Text>
+          <View style={styles.todayStatsContainer}>
+            <View style={styles.todayStatBox}>
+              <FontAwesome name="star" size={24} color={Colors.starYellow} style={styles.todayStatIcon} />
+              <Text style={styles.todayStatValue}>{formatPoints(pointsToday)}</Text>
+              <Text style={styles.todayStatLabel}>Points Today</Text>
+            </View>
+            <View style={styles.todayStatBox}>
+              <FontAwesome name="clock-o" size={24} color={Colors.primary} style={styles.todayStatIcon} />
+              <Text style={styles.todayStatValue}>{timeConnectedTodayDisplay}</Text>
+              <Text style={styles.todayStatLabel}>Time Connected</Text>
+            </View>
+          </View>
+        </View>
+      </ScreenWrapper>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  screenWrapperBg: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  screenWrapperContent: {
+    paddingBottom: 30,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: FontSizes.md,
+    fontFamily: Fonts.Poppins.Regular,
+    color: Colors.textLight,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: Colors.background,
+  },
+  errorText: {
+    fontSize: FontSizes.lg,
+    fontFamily: Fonts.Poppins.SemiBold,
+    color: Colors.error,
+    textAlign: 'center',
+    marginTop: 15,
+    marginBottom: 5,
+  },
+  errorSubText: {
+    fontSize: FontSizes.base,
+    fontFamily: Fonts.Poppins.Regular,
+    color: Colors.textLight,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  retryButton: {
+    backgroundColor: Colors.primary,
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    borderRadius: 25,
+  },
+  retryButtonText: {
+    color: Colors.white,
+    fontSize: FontSizes.md,
+    fontFamily: Fonts.Poppins.SemiBold,
+  },
+  customHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    backgroundColor: Colors.primary,
+    borderBottomLeftRadius: 25,
+    borderBottomRightRadius: 25,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginRight: 12,
+    backgroundColor: Colors.white,
+  },
+  headerWelcomeText: {
+    fontSize: FontSizes.md,
+    fontFamily: Fonts.Grandstander.Regular,
+    color: Colors.white,
+    opacity: 0.9,
+  },
+  headerUserNameText: {
+    fontSize: FontSizes.xxl,
+    fontFamily: Fonts.Grandstander.Bold,
+    color: Colors.white,
+    marginTop: 2,
+  },
+  notificationButtonContainer: {
+    padding: 10,
+  },
+  wifiStatusContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 15,
+    marginTop: 15,
+    marginBottom: 15,
+  },
+  wifiStatusCard: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.white,
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 12,
+    shadowColor: Colors.black,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  refreshButton: {
+    marginLeft: 10,
+    padding: 10,
+    backgroundColor: Colors.white,
+    borderRadius: 12,
+    shadowColor: Colors.black,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  wifiIcon: {
+    marginRight: 10,
+  },
+  wifiStatusText: {
+    fontSize: FontSizes.md,
+    fontFamily: Fonts.Poppins.Medium,
+  },
+  mainContentGrid: {
+    flexDirection: 'row',
+    paddingHorizontal: 15,
+    marginBottom: 15,
+  },
+  leftColumn: {
+    flex: 1,
+    marginRight: 8,
+  },
+  rightColumn: {
+    flex: 1,
+    marginLeft: 8,
+  },
+  gridCard: {
+    backgroundColor: Colors.white,
+    borderRadius: 15,
+    padding: 15,
+    shadowColor: Colors.black,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08, 
+    shadowRadius: 5,
+    elevation: 3,
+    justifyContent: 'space-between',
+  },
+  pointsCard: {
+    height: screenWidth * 0.4,
+    marginBottom: 15,
+    alignItems: 'center',
+    backgroundColor: Colors.primaryLight,
+  },
+  cardTitle: {
+    fontSize: FontSizes.base,
+    fontFamily: Fonts.Poppins.SemiBold,
+    color: Colors.text,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  cardTitleWhite: {
+    fontSize: FontSizes.base,
+    fontFamily: Fonts.Poppins.SemiBold,
+    color: Colors.white,
+    marginBottom: 4,
+  },
+  pointsValue: {
+    fontSize: FontSizes.xxl, 
+    fontFamily: Fonts.Grandstander.Bold,
+    color: Colors.primaryDark,
+    textAlign: 'center',
+    flexShrink: 1,
+  },
+  cardIconBottom: {
+      marginTop: 'auto',
+      paddingTop: 5,
+  },
+  treeStatusCard: {
+    height: screenWidth * 0.45,
+    alignItems: 'center',
+  },
+  treeImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    marginVertical: 8,
+  },
+  treeLevelText: {
+    fontSize: FontSizes.md,
+    fontFamily: Fonts.Poppins.SemiBold,
+    color: Colors.text,
+  },
+  progressBarContainerSmall: {
+    height: 8, 
+    backgroundColor: Colors.grayLight,
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginVertical: 8,
+    width: '80%',
+  },
+  progressBarSmall: {
+    height: '100%',
+    backgroundColor: Colors.greenProgressBar,
+    borderRadius: 4,
+  },
+  pointsChartCard: {
+    height: screenWidth * 0.4 + screenWidth * 0.45 + 15,
+    padding: 15, 
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  chartStyle: {
+    borderRadius: 8,
+    paddingRight: 0,
+  },
+  forestCardFullWidth: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.primaryDark,
+    padding: 20,
+    marginHorizontal: 15,
+    marginBottom: 20,
+  },
+  forestIcon: {
+      marginRight: 15,
+  },
+  forestTextContainer: {
+      flex: 1,
+  },
+  forestCardText: {
+    fontSize: FontSizes.sm,
+    fontFamily: Fonts.Poppins.Regular,
+    color: Colors.white,
+    opacity: 0.9,
+  },
+  dayProgressContainer: {
+    alignItems: 'center',
+    marginHorizontal: 5,
+  },
+  dayLabelContainer: {
+    marginBottom: 5,
+  },
+  dayLabel: {
+    fontSize: FontSizes.sm,
+    fontFamily: Fonts.Poppins.Medium,
+    color: Colors.textLight,
+  },
+  progressRingOuter: {
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  progressRingInnerFill: {
+    width: '100%',
+    position: 'absolute',
+    bottom: 0,
+  },
+  progressTimeTextContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  progressTimeText: {
+    fontSize: FontSizes.xs,
+    fontFamily: Fonts.Poppins.SemiBold,
+    color: Colors.primaryDark,
+  },
+  todayStatsCard: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.white,
+    padding: 20,
+    marginHorizontal: 15,
+    marginBottom: 20,
+  },
+  todayStatsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%',
+    marginTop: 10,
+  },
+  todayStatBox: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  todayStatIcon: {
+    marginBottom: 5,
+  },
+  todayStatValue: {
+    fontSize: FontSizes.lg,
+    fontFamily: Fonts.Grandstander.Bold,
+    color: Colors.text,
+    marginBottom: 2,
+  },
+  todayStatLabel: {
+    fontSize: FontSizes.sm,
+    fontFamily: Fonts.Poppins.Regular,
+    color: Colors.textLighter,
+    textTransform: 'uppercase',
+  },
+  verticalProgressContainer: {
+    flex: 1,
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  verticalProgressBarTrack: {
+    height: '70%',
+    width: 60,
+    backgroundColor: Colors.grayLight,
+    borderRadius: 30,
+    overflow: 'hidden',
+    marginTop: 10,
+    justifyContent: 'flex-end',
+  },
+  verticalProgressBarFill: {
+    width: '100%',
+    backgroundColor: Colors.greenProgressBar,
+  },
+  progressTextContainer: {
+    marginTop: 15,
+    alignItems: 'center',
+  },
+  progressText: {
+    fontSize: FontSizes.md,
+    fontFamily: Fonts.Grandstander.Bold,
+    color: Colors.primaryDark,
+    marginTop: 5,
+  },
+  progressLabel: {
+    fontSize: FontSizes.sm,
+    fontFamily: Fonts.Poppins.Regular,
+    color: Colors.textLighter,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  cardIconImage: {
+    width: 80,
+    height: 80,
+    resizeMode: 'contain',
+  },
+}); 

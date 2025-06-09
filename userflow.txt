@@ -1,0 +1,156 @@
+UniTree App - User Flows
+1. New User Onboarding & First Login
+User opens the app for the first time.
+App displays: Welcome screen with options: "Register" and "Login."
+User taps "Register."
+App displays: Registration form.
+Fields: University Email Address, Password, Confirm Password, Student ID (optional).
+Information about password policy (e.g., minimum length, complexity).
+
+
+User fills in the details and submits.
+System validates:
+If email domain is not a valid university domain: Display error "Please use your official university email." User corrects.
+If passwords don't match: Display error "Passwords do not match." User corrects.
+If password doesn't meet policy: Display error "Password does not meet security requirements." User corrects.
+If email already registered: Display error "This email is already registered. Try Login."
+If successful validation: Account is created. Display "Registration successful! Please check your email to verify your account (if email verification step is implemented)" OR "Registration successful! You can now log in."
+
+
+User navigates (or is redirected) to the Login screen.
+User enters registered email and password.
+User taps "Login."
+System authenticates:
+If successful: User is logged in and lands on the main app dashboard (Points Dashboard).
+If unsuccessful (wrong credentials): Display error "Invalid email or password."
+
+2. Existing User Login
+User opens the app.
+App displays: Login screen (or last viewed screen if already logged in).
+User enters registered email and password.
+User taps "Login."
+System authenticates:
+If successful: User is logged in and lands on the main app dashboard.
+If unsuccessful: Display error "Invalid email or password."
+
+3. Password Recovery ("Forgot Password")
+On the Login screen, user taps "Forgot Password?"
+App displays: Screen asking for registered university email address.
+User enters email and submits.
+System validates email:
+If email exists in the system: Send a password reset link/code to the user's email. Display message "Password reset instructions have been sent to your email."
+If email does not exist: Display error "Email address not found."
+
+
+User checks email, clicks the reset link (or enters code in app).
+User is directed to a screen to set a new password.
+User enters new password, confirms it, and submits.
+System updates password. Display "Password successfully reset. You can now log in."
+User logs in with the new password (as per Flow 2).
+4. Connecting to Campus WiFi & Earning Points
+User is physically on campus.
+User connects their device to a designated campus WiFi network (SSID).
+User opens the UniTree app (or app is running in the background with necessary permissions).
+App automatically detects: Connection to a designated campus WiFi.
+(App UI might show "Connected to [Campus WiFi Name] - Tracking active")
+System checks if current time is within valid tracking timeframes (e.g., Mon-Fri, 7 AM - 9 PM).
+If valid: Time tracking begins. App periodically re-validates the WiFi connection.
+(Post-MVP: If university timetable integration exists, system checks if user has a scheduled class).
+
+
+If invalid (e.g., weekend, outside hours): Time tracking does not start. (App UI might show "Not within valid tracking hours").
+User remains connected during valid timeframes.
+At the end of a connection session (e.g., user disconnects from WiFi) or at a scheduled interval (e.g., daily batch process):
+System calculates total valid connected time.
+System converts time to points (e.g., 1 hour = 100 points), respecting daily earnable limits.
+Points are credited to the user's account.
+(Optional) User receives a push notification: "You've earned X points today!" (FR10)
+User can open the app and view updated total points on their Points Dashboard (FR6).
+5. Viewing Points Dashboard & History
+User logs into the app.
+User is on (or navigates to) the Points Dashboard.
+App displays:
+Current total points.
+Points needed to redeem 1 seedling (e.g., "1000 points for 1 seedling").
+(Post-MVP) Link/tab to view detailed point earning history (dates, amounts earned).
+(Post-MVP) Link/tab to view redemption history (dates, items redeemed) (FR6.1).
+(Post-MVP) Personal point leaderboard/ranking (FR6.1).
+6. Redeeming Points for a Seedling (Sponsored Planting)
+User is on the Points Dashboard and has enough points for redemption.
+User taps a "Redeem Seedling" button/option.
+App displays: Confirmation screen: "Redeem 1 Seedling for [X] points? This tree will be planted on your behalf." Options: "Confirm," "Cancel."
+User taps "Confirm."
+System deducts points from user's account.
+App displays: "Redemption request submitted! You will be notified once it's approved and your tree is planted." (FR7)
+User receives a push notification: "Your seedling redemption request has been submitted." (FR10)
+(Admin Action): Admin reviews and approves the redemption request.
+User receives a push notification: "Your seedling redemption has been approved! Your tree will be planted soon." (FR10)
+(Admin Action & Partner Action): Tree is planted. Admin assigns Tree ID and basic tree info.
+User receives a push notification: "Your tree [Tree ID] has been planted! View its profile." (FR10)
+User can now access the Virtual Tree Profile (Flow 8).
+7. Redeeming Points for an Event Tree (Take Home - Post-MVP)
+A special event offering take-home trees is active (announced by Admin via other channels or in-app event section).
+User is on the Points Dashboard (or a special Event Redemption screen) and has enough points for the event tree.
+User taps a "Redeem Event Tree" button/option (specific to the event).
+App displays: Confirmation screen: "Redeem 1 [Event Tree Species] for [Y] points? You can pick this up at [Location/Time]." Options: "Confirm," "Cancel."
+User taps "Confirm."
+System deducts points from user's account.
+App displays: "Redemption successful! Please follow instructions for picking up your tree." (FR7)
+User receives a push notification: "Your event tree redemption is successful." (FR10)
+(External Process): User picks up the physical tree as per event instructions.
+8. Viewing Virtual Tree Profile (for Sponsored Planted Trees)
+User has successfully redeemed a seedling, it has been approved, planted, and a Tree ID assigned (as per Flow 6).
+User navigates to a "My Trees" or "Forest" section in the app.
+App displays a list or gallery of their virtually tracked trees.
+User taps on a specific tree.
+App displays the Virtual Tree Profile (FR8):
+Tree ID.
+Tree species.
+Planting date.
+Approximate GPS location or general planting area.
+Initial photo(s).
+Growth milestones (e.g., "Planted").
+9. Receiving Tree Growth Updates (for Sponsored Planted Trees)
+(Admin Action): Admin updates a tree's profile (e.g., new photo, new growth milestone like "Sprouted").
+User receives a push notification: "Your tree [Tree ID] has a new update! Check it out." (FR9, FR10)
+User taps the notification OR opens the app and navigates to their Virtual Tree Profile (Flow 8).
+User sees the updated information/photo on the tree's profile.
+10. Receiving Other Notifications
+User receives push notifications for various events:
+Successful point accumulation (FR10).
+Redemption status changes (requested, approved, tree planted/received) (FR10).
+Tree profile updates (new photo, new milestone) (FR10).
+(Post-MVP) Points deducted (due to violations, admin adjustments) (FR10).
+(Post-MVP Optional) Engagement reminders: "You're on campus but not connected to UniTree WiFi. Connect now to earn points!" (FR10.1)
+User taps the notification.
+App opens and navigates the user to the relevant screen (e.g., Points Dashboard, Tree Profile, Redemption History).
+11. Group/Class Features (Post-MVP)
+     11.1 Creating a Group (by a user/group leader)
+1.  User navigates to "Groups" section.
+2.  User taps "Create Group."
+3.  User enters Group Name (system checks for uniqueness if required).
+4.  User invites members (e.g., by searching for their university email/username).
+5.  Group is created in a "pending" state until minimum member count (e.g., 15) is reached within the timeframe (e.g., 2-3 days).
+6.  If minimum not met in time, group may be automatically canceled/inactivated. User (creator) is notified.
+
+     11.2 Joining a Group
+1.  User receives an invitation to join a group (e.g., in-app notification).
+2.  User views the invitation and taps "Accept" or "Decline."
+3.  If user account has reached its maximum group join limit (e.g., 1 or 2), display "Cannot join, group limit reached."
+4.  If accepted, user becomes a member of the group.
+
+     11.3 Viewing Group Leaderboards
+1.  User navigates to "Groups" section and selects their group.
+2.  User can view:
+    *   Leaderboard of groups (their group's rank vs other groups based on total points).
+    *   Leaderboard of individual members within their own group.
+
+    11.4 Viewing Group's Redeemed Items
+1.  User navigates to their group's page.
+2.  App displays the total number of trees/items collectively redeemed by the group (if applicable) or an aggregation of member redemptions.   
+12. User Logout
+User navigates to "Settings" or "Profile" section.
+User taps "Logout."
+App displays confirmation: "Are you sure you want to log out?"
+User confirms.
+User is logged out, and the app returns to the Login screen.
