@@ -67,21 +67,14 @@ RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY DEFINER SET search_path = public
 AS $$
-DECLARE
-  student_id_val text;
 BEGIN
-  student_id_val := new.raw_user_meta_data->>'student_id';
-  IF student_id_val = '' THEN
-    student_id_val := NULL;
-  END IF;
-
   INSERT INTO public.profiles (id, email, username, avatar_url, student_id)
   VALUES (
     new.id,
     new.email,
     new.raw_user_meta_data->>'user_name',
     new.raw_user_meta_data->>'avatar_url',
-    student_id_val
+    new.raw_user_meta_data->>'student_id'
   );
   RETURN new;
 END;
