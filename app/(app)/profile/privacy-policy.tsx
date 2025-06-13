@@ -7,14 +7,7 @@ import { Colors, Fonts, FontSizes, LineHeights } from '../../constants';
 // import { useTabBarVisibility } from '../../contexts/TabBarVisibilityContext'; // No longer needed
 
 export default function PrivacyPolicyScreen() {
-  // const { setIsTabBarVisible } = useTabBarVisibility(); // No longer needed
 
-  /* useEffect(() => { // This effect is no longer needed, CustomTabBar handles it
-    setIsTabBarVisible(false); 
-    return () => {
-      setIsTabBarVisible(true); 
-    };
-  }, [setIsTabBarVisible]); */
 
   return (
     <ScreenWrapper withScrollView={false} applyTopInset={false} style={{backgroundColor: Colors.white}}>

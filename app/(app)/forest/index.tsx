@@ -6,7 +6,15 @@ import { ScreenWrapper } from '../../components/layouts';
 import { UniversalHeader } from '../../components/navigation';
 import { Colors, Fonts, FontSizes } from '../../constants';
 import { CollectedTree, useUserData } from '../../contexts/UserDataContext';
-import { formatTimeAgo } from '../../utils/notifications';
+
+const formatDate = (dateString: string) => {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0'); // Months are 0-indexed
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
+};
 
 export default function ForestScreen() {
   const { 
@@ -34,7 +42,7 @@ export default function ForestScreen() {
         {item.species && <Text style={styles.collectedTreeSpecies} numberOfLines={1}>{item.species}</Text>}
         <View style={styles.dateContainer}>
             <FontAwesome name="calendar" size={FontSizes.sm - 2} color={Colors.grayDark} />
-            <Text style={styles.collectedTreeDate}> {formatTimeAgo(item.date_redeemed)}</Text>
+            <Text style={styles.collectedTreeDate}> {formatDate(item.date_redeemed)}</Text>
         </View>
       </View>
     </View>
@@ -79,7 +87,7 @@ export default function ForestScreen() {
         data={collectedRealTrees}
         renderItem={renderTreeItem}
         keyExtractor={item => item.id}
-        numColumns={2}
+        numColumns={1}
         contentContainerStyle={collectedRealTrees.length === 0 ? styles.emptyForestContainer : styles.treeListContainer}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[Colors.primary]} />}
         ListEmptyComponent={() => (
@@ -134,16 +142,14 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   treeListContainer: {
-    flexDirection: 'row', 
-    flexWrap: 'wrap', 
-    justifyContent: 'space-around',
     paddingHorizontal: 10,
+    alignItems: 'center',
   },
   collectedTreeItem: {
     backgroundColor: Colors.white,
     borderRadius: 15,
     marginBottom: 20,
-    width: '46%',
+    width: '90%',
     shadowColor: Colors.black,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,

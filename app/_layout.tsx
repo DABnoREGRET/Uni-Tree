@@ -1,12 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFonts } from 'expo-font';
-import { SplashScreen, Stack, useLocalSearchParams, useRouter, useSegments } from "expo-router";
-import React, { useEffect, useState } from 'react';
+import { SplashScreen, Stack, useRouter, useSegments } from "expo-router";
+import React, { useEffect } from 'react';
+import 'react-native-reanimated';
 import { AppProvider } from './contexts/AppContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { TabBarVisibilityProvider } from "./contexts/TabBarVisibilityContext";
 import { UserDataProvider } from './contexts/UserDataContext';
-import { unregisterBackgroundWifiMonitor } from './services/backgroundWifiMonitor';
+import { STORAGE_KEYS } from './utils/asyncStorage';
 
 // Font assets to load
 const customFontsToLoad = {
@@ -25,72 +26,76 @@ const customFontsToLoad = {
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
 
-const InitialLayout = () => {
-  const { isLoading: authIsLoading, isAuthenticated } = useAuth();
+function RootLayoutNav() {
+  const { session, isLoading: authIsLoading } = useAuth();
+  const isAuthenticated = !!session;
   const router = useRouter();
   const segments = useSegments();
-  const params = useLocalSearchParams();
-  const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState<boolean | null>(null);
-  const [isCheckingOnboarding, setIsCheckingOnboarding] = useState(true);
-  const [fontsLoaded, fontError] = useFonts(customFontsToLoad);
+  const [onboardingCompleted, setOnboardingCompleted] = React.useState<boolean | null>(null);
+
+  const [fontsLoaded, fontError] = useFonts({
+    'Poppins-Regular': require('../assets/fonts/Poppins-Regular.ttf'),
+    'Poppins-SemiBold': require('../assets/fonts/Poppins-SemiBold.ttf'),
+    'Poppins-Bold': require('../assets/fonts/Poppins-Bold.ttf'),
+    'Grandstander-Regular': require('../assets/fonts/Grandstander-Regular.ttf'),
+    'Grandstander-SemiBold': require('../assets/fonts/Grandstander-SemiBold.ttf'),
+    'Grandstander-Bold': require('../assets/fonts/Grandstander-Bold.ttf'),
+  });
 
   useEffect(() => {
-    const checkOnboardingStatus = async () => {
+    const checkOnboarding = async () => {
       try {
-        const value = await AsyncStorage.getItem('hasCompletedOnboarding');
-        setHasCompletedOnboarding(value === 'true');
-      } catch (e) {
-        console.error("Failed to load onboarding status", e);
-        setHasCompletedOnboarding(false); // Default to showing onboarding on error
-      } finally {
-        setIsCheckingOnboarding(false);
+        const value = await AsyncStorage.getItem(STORAGE_KEYS.ONBOARDING_COMPLETED);
+        setOnboardingCompleted(value === 'true');
+      } catch (error) {
+        console.error('Error checking onboarding status:', error);
+        // If there's an error reading the value, treat onboarding as NOT completed so the user will still see the onboarding flow.
+        setOnboardingCompleted(false);
       }
     };
-    checkOnboardingStatus();
-
+    checkOnboarding();
   }, []);
 
   useEffect(() => {
-    if (fontError) {
-      console.error("Font loading error:", fontError);
+    if (authIsLoading || (!fontsLoaded && !fontError) || onboardingCompleted === null) {
+      return; // Wait for auth, fonts, and onboarding check to load
     }
-
-    if (authIsLoading || isCheckingOnboarding || (!fontsLoaded && !fontError)) {
-      return; // Still loading auth, onboarding status, or fonts
-    }
-
-    SplashScreen.hideAsync(); // All checks complete, hide splash screen
-
+    
     const inAuthGroup = segments[0] === '(auth)';
-    const inAppGroup = segments[0] === '(app)';
+    const inOnboarding = segments[0] === 'onboarding';
 
-    if (hasCompletedOnboarding === false) {
-      if (segments[0] !== 'onboarding') {
+    if (!isAuthenticated) {
+      // If user is not authenticated, check onboarding status
+      if (!onboardingCompleted && !inOnboarding && !inAuthGroup) {
         router.replace('/onboarding');
-      }
-    } else if (!isAuthenticated) {
-      if (!inAuthGroup && segments[0] !== 'onboarding') {
+      } else if (onboardingCompleted && !inAuthGroup && !inOnboarding) {
         router.replace('/(auth)/login');
       }
-    } else { // isAuthenticated is true and onboarding is complete
-      if (!inAppGroup) {
+    } else { // isAuthenticated is true
+      // If user is authenticated, redirect to the app group.
+      if (inAuthGroup || inOnboarding) {
         router.replace('/(app)/home');
       }
     }
-  }, [authIsLoading, isAuthenticated, router, hasCompletedOnboarding, isCheckingOnboarding, fontsLoaded, fontError, segments]);
-
-  // Unregister background task on logout or app unmount if necessary
+  }, [authIsLoading, isAuthenticated, fontsLoaded, fontError, segments, router, onboardingCompleted]);
+  
   useEffect(() => {
-    if (!isAuthenticated && !authIsLoading) {
-      // User logged out
-      unregisterBackgroundWifiMonitor();
+    if (!authIsLoading && (fontsLoaded || fontError)) {
+      SplashScreen.hideAsync();
+      // Permission requests are now handled in the dedicated onboarding screen to prevent
+      // OS dialogs from popping up before the user reaches the permissions step.
     }
-  }, [isAuthenticated, authIsLoading]);
+  }, [authIsLoading, fontsLoaded, fontError]);
 
-  // InitialLayout's job is to handle side effects (routing, splash screen)
-  // It doesn't render UI itself into the component tree directly here.
-  return null;
-};
+
+  return (
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="(app)" />
+      <Stack.Screen name="(auth)" />
+      <Stack.Screen name="onboarding" />
+    </Stack>
+  );
+}
 
 export default function RootLayout() {
   return (
@@ -99,14 +104,7 @@ export default function RootLayout() {
         <AppProvider>
           <TabBarVisibilityProvider>
             {/* InitialLayout is rendered here to run its useEffect hooks for redirection logic */}
-            <InitialLayout />
-            {/* The Stack navigator defines the actual screens that can be navigated to */}
-            <Stack screenOptions={{ headerShown: false }}>
-              <Stack.Screen name="(app)" />
-              <Stack.Screen name="(auth)" />
-              <Stack.Screen name="onboarding" />
-              <Stack.Screen name="index" />
-            </Stack>
+            <RootLayoutNav />
           </TabBarVisibilityProvider>
         </AppProvider>
       </UserDataProvider>

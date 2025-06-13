@@ -14,11 +14,11 @@ interface AuthContextType {
   signInWithEmail: (email: string, password: string) => Promise<{ error: any }>;
   signUpWithEmail: (email: string, password: string, username: string, studentId?: string | null, avatarUrl?: string) => Promise<{ data: { user: User | null; session: Session | null; }; error: any; }>;
   signOut: () => Promise<{ error: any }>;
-  changePassword: (newPassword: string) => Promise<{ error: any }>;
-  verifyPassword: (currentPassword: string) => Promise<{ verified: boolean; error: any }>;
   resetPasswordForEmail: (email: string) => Promise<{ error: any }>;
   signInWithPassword: (email?: string, password?: string) => Promise<{ error: any } | { error: null; session: Session | null}>;
   updateUserMetadata: (metadata: object) => Promise<{ data: any, error: any }>;
+  changePassword: (password: string) => Promise<{ error: any }>;
+  deleteAccount: () => Promise<{ error: any }>;
   // TODO: Add other necessary auth methods (e.g., password recovery)
 }
 
@@ -87,7 +87,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       console.error("Sign in error:", error.message);
-      Alert.alert("Sign In Failed", error.message);
     }
     // Session and user state will be updated by onAuthStateChange
     setIsLoading(false);
@@ -120,54 +119,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       Alert.alert("Sign Out Failed", error.message);
     }
     // Session and user state will be cleared by onAuthStateChange
-    setIsLoading(false);
-    return { error };
-  };
-
-  const verifyPassword = async (currentPassword: string) => {
-    if (!user?.email) {
-      return { verified: false, error: { message: "User not authenticated." } };
-    }
-    
-    try {
-      // Try to sign in with current credentials to verify password
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: user.email,
-        password: currentPassword,
-      });
-      
-      if (error) {
-        return { verified: false, error };
-      }
-
-      // Explicitly set the new session to ensure the client is using the latest token
-      // for the subsequent updateUser call. onAuthStateChange will also fire,
-      // but this avoids potential race conditions.
-      if (data.session) {
-        // This is the critical part: update the app's main session state
-        setSession(data.session); 
-
-        const { error: setError } = await supabase.auth.setSession(data.session);
-        if (setError) {
-          console.error('Failed to set session after verification:', setError);
-          return { verified: false, error: setError };
-        }
-      }
-      
-      return { verified: true, error: null };
-    } catch (error: any) {
-      return { verified: false, error };
-    }
-  };
-
-  const changePassword = async (newPassword: string) => {
-    setIsLoading(true);
-    const { data, error } = await supabase.auth.updateUser({ password: newPassword });
-    
-    if (error) {
-      console.error("Change password error:", error.message);
-    }
-
     setIsLoading(false);
     return { error };
   };
@@ -233,6 +184,30 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const changePassword = async (password: string) => {
+    setIsLoading(true);
+    const { data, error } = await supabase.auth.updateUser({ password: password });
+    setIsLoading(false);
+    return { error };
+  }
+
+  const deleteAccount = async () => {
+    setIsLoading(true);
+    try {
+      const { error } = await supabase.functions.invoke('delete-account');
+      if (error) throw error;
+      await signOut(); // Clear any cached session
+      Alert.alert('Account Deleted', 'Your account has been permanently deleted.');
+      return { error: null };
+    } catch (error: any) {
+      console.error('Error deleting account:', error);
+      Alert.alert('Deletion Failed', error.message || 'Unable to delete your account.');
+      return { error };
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const contextValue = React.useMemo(() => ({
     session,
     user,
@@ -241,15 +216,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     signInWithEmail,
     signUpWithEmail,
     signOut,
-    changePassword,
-    verifyPassword,
     resetPasswordForEmail,
     signInWithPassword,
     updateUserMetadata,
+    changePassword,
+    deleteAccount,
   }), [
     session, user, isLoading, // signInWithEmail, signUpWithEmail, etc., are stable due to useCallback or being top-level
-    // If any of these functions were not wrapped in useCallback and were redefined on render, they would need to be in the dep array.
-    // However, as they are defined once in the provider scope, they are stable.
   ]);
 
   return (

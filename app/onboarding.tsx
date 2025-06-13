@@ -1,9 +1,13 @@
 import { FontAwesome } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Location from 'expo-location';
+import * as Notifications from 'expo-notifications';
 import { useRouter } from 'expo-router';
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Dimensions, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { registerBackgroundWifiMonitor } from './services/backgroundWifiMonitor';
+import { STORAGE_KEYS } from './utils/asyncStorage';
+import { requestNotificationPermissions } from './utils/notifications';
 // import Swiper from 'react-native-swiper'; // Consider adding a swiper for multi-page onboarding
 
 const { width, height } = Dimensions.get('window');
@@ -12,7 +16,7 @@ interface OnboardingSlide {
   key: string;
   title: string;
   text: string;
-  imageType: 'image' | 'icon' | 'image_and_icon';
+  imageType: 'image' | 'icon' | 'image_and_icon' | 'permissions';
   imageSource?: any; // For Image
   iconName?: React.ComponentProps<typeof FontAwesome>['name']; // For FontAwesome icon
   secondaryImageSource?: any; // For greet_mascot on slide 3
@@ -31,7 +35,7 @@ const onboardingSlides: OnboardingSlide[] = [
   },
   {
     key: '2',
-    title: 'Grow Your Tree',
+    title: 'Grow your\nTree',
     text: 'The more you stay connected on campus, the more your unique tree flourishes.',
     imageType: 'icon',
     iconName: 'tree',
@@ -46,6 +50,13 @@ const onboardingSlides: OnboardingSlide[] = [
     secondaryIconName: 'shopping-bag', // Example store/gift icon
     backgroundColor: '#F4D06F', // Example Yellow/Orange
   },
+  {
+    key: '4',
+    title: 'Enable Permissions',
+    text: 'UniTree needs a few permissions to run smoothly. Please grant these permissions.',
+    imageType: 'permissions' as any,
+    backgroundColor: '#8EC5FC',
+  },
 ];
 
 export default function OnboardingScreen() {
@@ -53,26 +64,92 @@ export default function OnboardingScreen() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const flatListRef = useRef<FlatList<OnboardingSlide>>(null);
 
-  const handleNext = () => {
+  // Permission states
+  type PermState = 'granted' | 'denied' | 'undetermined';
+  const [notifStatus, setNotifStatus] = useState<PermState>('undetermined');
+  const [fgLocStatus, setFgLocStatus] = useState<PermState>('undetermined');
+  const [bgLocStatus, setBgLocStatus] = useState<PermState>('undetermined');
+
+  const allPermissionsGranted = fgLocStatus === 'granted' && bgLocStatus === 'granted';
+
+  const refreshPermissionStatuses = async () => {
+    const notifPerm = await Notifications.getPermissionsAsync();
+    setNotifStatus(notifPerm.status);
+
+    const fgLocPerm = await Location.getForegroundPermissionsAsync();
+    setFgLocStatus(fgLocPerm.status);
+
+    const bgLocPerm = await Location.getBackgroundPermissionsAsync();
+    setBgLocStatus(bgLocPerm.status);
+  };
+
+  useEffect(() => {
+    refreshPermissionStatuses();
+  }, []);
+
+  const requestAllPermissions = async () => {
+    const notif = await requestNotificationPermissions(true);
+    if (notif.granted) setNotifStatus('granted'); else setNotifStatus('denied');
+
+    const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
+    setFgLocStatus(fgStatus);
+
+    if (fgStatus === 'granted') {
+      const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+      setBgLocStatus(bgStatus);
+    }
+  };
+
+  const handleNext = async () => {
     if (currentIndex < onboardingSlides.length - 1) {
       flatListRef.current?.scrollToIndex({ index: currentIndex + 1 });
-      setCurrentIndex(currentIndex + 1);
+    } else {
+      // We're on permissions slide; attempt to ensure permissions then proceed
+      if (allPermissionsGranted) {
+        await handleGetStarted();
+      } else {
+        await requestAllPermissions();
+        // Re-check after requesting
+        const grantedNow = fgLocStatus === 'granted' && bgLocStatus === 'granted';
+        if (grantedNow) {
+          await handleGetStarted();
+        }
+      }
     }
+  };
+
+  const handleSkip = async () => {
+    await handleGetStarted();
   };
 
   const handleGetStarted = async () => {
     try {
-      console.log("Attempting to set hasCompletedOnboarding to true...");
-      await AsyncStorage.setItem('hasCompletedOnboarding', 'true');
-      console.log("hasCompletedOnboarding set to true. Navigating to login...");
+      // Request permissions in sequence so OS dialogs don't overlap
+      await requestNotificationPermissions(true);
+
+      const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
+      if (fgStatus === 'granted') {
+        await Location.requestBackgroundPermissionsAsync();
+      }
+
+      // Register background WiFi monitor (handles its own permission checks too)
       await registerBackgroundWifiMonitor();
-      router.replace('/(auth)/login');
-    } catch (e) {
-      console.error("Failed to save onboarding status or navigate:", e);
-      // Still navigate, but log the error
+    } catch (err) {
+      console.warn('[Onboarding] Permission request failed:', err);
+    } finally {
+      await saveOnboardingCompleted();
       router.replace('/(auth)/login');
     }
   };
+
+  const saveOnboardingCompleted = async () => {
+    try {
+      await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING_COMPLETED, 'true');
+    } catch (error) {
+      console.error('Error saving onboarding completion:', error);
+    }
+  };
+
 
   const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
     if (viewableItems.length > 0) {
@@ -83,28 +160,95 @@ export default function OnboardingScreen() {
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 50 }).current;
 
 
-  const renderItem = ({ item }: { item: OnboardingSlide }) => (
-    <View style={[styles.slideContainer, { backgroundColor: item.backgroundColor, width: width }]}>
-      <View style={styles.illustrationContainer}>
-        {item.imageType === 'image' && item.imageSource && (
-          <Image source={item.imageSource} style={styles.mainImage} resizeMode="contain" />
-        )}
-        {item.imageType === 'icon' && item.iconName && (
-          <FontAwesome name={item.iconName} size={width * 0.5} color="#FFFFFF" />
-        )}
-        {item.imageType === 'image_and_icon' && (
-          <View style={styles.combinedImageContainer}>
-            {item.imageSource && <Image source={item.imageSource} style={styles.mascotImage} resizeMode="contain" />}
-            {item.secondaryIconName && <FontAwesome name={item.secondaryIconName} size={width * 0.3} color="#FFFFFF" style={styles.secondaryIcon} />}
-          </View>
-        )}
+  const renderItem = ({ item }: { item: OnboardingSlide }) => {
+    const isPermissionSlide = item.imageType === 'permissions';
+
+    return (
+      <View
+        style={[
+          styles.slideContainer,
+          {
+            backgroundColor: item.backgroundColor,
+            width,
+            // Reduce bottom padding on permission slide so the rows are fully visible
+            paddingBottom: isPermissionSlide ? height * 0.15 : undefined,
+          },
+        ]}
+      >
+        <View style={styles.illustrationContainer}>
+          {item.imageType === 'image' && item.imageSource && (
+            <Image source={item.imageSource} style={styles.mainImage} resizeMode="contain" />
+          )}
+          {item.imageType === 'icon' && item.iconName && (
+            <FontAwesome name={item.iconName} size={width * 0.5} color="#FFFFFF" />
+          )}
+          {item.imageType === 'image_and_icon' && (
+            <View style={styles.combinedImageContainer}>
+              {item.imageSource && (
+                <Image source={item.imageSource} style={styles.mascotImage} resizeMode="contain" />
+              )}
+              {item.secondaryIconName && (
+                <FontAwesome
+                  name={item.secondaryIconName}
+                  size={width * 0.3}
+                  color="#FFFFFF"
+                  style={styles.secondaryIcon}
+                />
+              )}
+            </View>
+          )}
+          {isPermissionSlide && (
+            <View style={styles.permissionListContainer}>
+              {renderPermissionRow(
+                'Push Notifications (Optional)',
+                'Allows UniTree to send study reminders, reward alerts, and important notices. You can say "Don\'t Allow" and still use the app.',
+                notifStatus,
+              )}
+              {renderPermissionRow(
+                'Location (Foreground)',
+                "Required by the operating system so UniTree can read the Wi-Fi name (SSID) and confirm you're on campus. No GPS coordinates are stored.",
+                fgLocStatus,
+              )}
+              {renderPermissionRow(
+                'Location (Background)',
+                'Lets UniTree keep counting your campus Wi-Fi time even if the app is closed. Uses low power and automatically stops when you log out.',
+                bgLocStatus,
+              )}
+              <Text
+                style={{
+                  color: '#FFF',
+                  fontSize: 12,
+                  marginTop: 15,
+                  opacity: 0.8,
+                  textAlign: 'center',
+                }}
+              >
+                You can revoke any permission later in your device settings, but some UniTree features may stop working.
+              </Text>
+            </View>
+          )}
+        </View>
+        <View style={styles.textContainer}>
+          <Text style={styles.title}>{item.title}</Text>
+          <Text style={styles.subtitle}>{item.text}</Text>
+        </View>
       </View>
-      <View style={styles.textContainer}>
-        <Text style={styles.title}>{item.title}</Text>
-        <Text style={styles.subtitle}>{item.text}</Text>
+    );
+  };
+
+  const renderPermissionRow = (title: string, subtitle: string, status: PermState) => {
+    const icon = status === 'granted' ? 'check-circle' : status === 'denied' ? 'times-circle' : 'circle-o';
+    const color = status === 'granted' ? '#4CAF50' : status === 'denied' ? '#F44336' : '#FFFFFFAA';
+    return (
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 10 }}>
+        <FontAwesome name={icon as any} size={24} color={color} style={{ marginRight: 15 }} />
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: '#FFF', fontSize: 18, fontFamily: 'Poppins-SemiBold' }}>{title}</Text>
+          <Text style={{ color: '#FFF', fontSize: 14, opacity: 0.9 }}>{subtitle}</Text>
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -120,23 +264,30 @@ export default function OnboardingScreen() {
         viewabilityConfig={viewabilityConfig}
         style={{ flex: 1 }}
       />
-      <View style={styles.footer}>
-        <View style={styles.dotsContainer}>
-          {onboardingSlides.map((_, index) => (
-            <View
-              key={index}
-              style={[styles.dot, index === currentIndex ? styles.activeDot : {}]}
-            />
-          ))}
-        </View>
 
+      {/* Progress dots at TOP */}
+      <View style={styles.progressContainer}>
+        {onboardingSlides.map((_, index) => (
+          <View
+            key={index}
+            style={[styles.dot, index === currentIndex ? styles.activeDot : {}]}
+          />
+        ))}
+      </View>
+
+      {/* Footer with navigation button */}
+      <View style={styles.footer}>
         {currentIndex < onboardingSlides.length - 1 ? (
           <TouchableOpacity style={styles.button} onPress={handleNext}>
-            <Text style={styles.buttonText}>Next</Text>
+            <Text style={styles.buttonText} numberOfLines={1} adjustsFontSizeToFit>
+              Next
+            </Text>
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity style={styles.button} onPress={handleGetStarted}>
-            <Text style={styles.buttonText}>Get Started</Text>
+          <TouchableOpacity style={styles.button} onPress={allPermissionsGranted ? handleSkip : requestAllPermissions}>
+            <Text style={styles.buttonText} numberOfLines={1} adjustsFontSizeToFit>
+              {allPermissionsGranted ? 'Get Started' : 'Continue'}
+            </Text>
           </TouchableOpacity>
         )}
       </View>
@@ -152,17 +303,17 @@ const styles = StyleSheet.create({
   slideContainer: {
     flex: 1,
     alignItems: 'center',
-    justifyContent: 'center', // Center content vertically
+    justifyContent: 'flex-start', // Align content from top for consistent title position
     paddingHorizontal: 30,
     paddingTop: height * 0.1,
     paddingBottom: height * 0.25, // Make space for footer
   },
   illustrationContainer: {
     width: width * 0.85,
-    height: height * 0.40, // Reduced height slightly
+    height: height * 0.40, // Slightly less than half of the screen height
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 30, // Increased margin
+    marginBottom: 65, // Increase margin to move titles & subtitles down
   },
   mainImage: {
     width: '90%',
@@ -183,7 +334,8 @@ const styles = StyleSheet.create({
   },
   textContainer: {
     alignItems: 'center',
-    paddingHorizontal: 10,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
   },
   title: {
     fontSize: 36, // Adjusted from Figma 'Welcome Gre...!' (58px)
@@ -200,6 +352,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 26,
     opacity: 0.9,
+    marginBottom: 40,
+
   },
   footer: {
     position: 'absolute',
@@ -214,7 +368,7 @@ const styles = StyleSheet.create({
   },
   dotsContainer: {
     flexDirection: 'row',
-    marginBottom: 20, // Space between dots and button
+    // This style is now repurposed for the top indicator, spacing handled by progressContainer
   },
   dot: {
     width: 10,
@@ -231,11 +385,11 @@ const styles = StyleSheet.create({
   },
   button: {
     backgroundColor: '#A2C00E',
-    paddingVertical: 16,
-    paddingHorizontal: 50,
+    height: 56, // Consistent height
     borderRadius: 18,
-    width: width * 0.7,
+    width: width * 0.72, // Slightly wider, consistent across all labels
     alignItems: 'center',
+    justifyContent: 'center',
     elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -246,6 +400,17 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontFamily: 'Grandstander-Bold',
     color: '#FFFFFF',
-    fontWeight: '700',
+    fontWeight: '600',
+  },
+  permissionListContainer: {
+    marginTop: 20, // Push the list a bit lower
+  },
+  progressContainer: {
+    position: 'absolute',
+    top: height * 0.06, // roughly 6% from top, adjust as needed
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
   },
 }); 

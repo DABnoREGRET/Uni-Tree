@@ -5,6 +5,7 @@ export const STORAGE_KEYS = {
   ONBOARDING_COMPLETED: 'hasCompletedOnboarding',
   CURRENT_USER_ID: 'currentUserId',
   NOTIFICATION_PREFERENCES: 'notificationPreferences',
+  PERMISSIONS_REQUESTED: 'hasRequestedPermissions',
   // Add more keys as needed
 } as const;
 

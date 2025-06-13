@@ -22,7 +22,7 @@ export const Colors = {
   textLighter: '#777777',
   textWhite: '#FFFFFF',
 
-  background: '#F3F4F6', // A light gray for screen backgrounds
+  background: '#ffced3', 
   backgroundLight: '#E8F5E9', // Let's keep this for now unless a global light mint is preferred
   cardBackground: '#FFFFFF', // Default card background
 

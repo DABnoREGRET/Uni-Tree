@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Alert, StyleSheet, Text } from 'react-native';
+import { Alert, KeyboardAvoidingView, Platform, StyleSheet, Text } from 'react-native';
 import { AuthScreenLayout } from '../components/layouts';
 import { PrimaryButton, StyledTextInput } from '../components/ui';
 import { Colors, Fonts, FontSizes } from '../constants';
@@ -41,41 +41,46 @@ export default function CompleteProfileScreen() {
   };
 
   return (
-    <AuthScreenLayout
-      topTitle="One Last Step!"
-      topSubtitle="Complete your profile to join the community."
-      formTitle="Your Information"
-      showMascot={false}
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={{ flex: 1 }}
     >
-      <Text style={styles.instructionText}>
-        Your username and student ID is public on the leaderboard.
-      </Text>
+      <AuthScreenLayout
+        topTitle="One Last Step!"
+        topSubtitle="Complete your profile to join the community."
+        formTitle="Your Information"
+        showMascot={false}
+      >
+        <Text style={styles.instructionText}>
+          Your username and student ID is public on the leaderboard.
+        </Text>
 
-      <StyledTextInput
-        label="Username (Public)"
-        iconName="user-o"
-        placeholder="Enter your desired username"
-        value={username}
-        onChangeText={setUsername}
-        containerStyle={styles.inputField}
-      />
+        <StyledTextInput
+          label="Username (Public)"
+          iconName="user-o"
+          placeholder="Enter your desired username"
+          value={username}
+          onChangeText={setUsername}
+          containerStyle={styles.inputField}
+        />
 
-      <StyledTextInput
-        label="Student ID (Optional, Private)"
-        iconName="id-card-o"
-        placeholder="Enter your student ID"
-        value={studentId}
-        onChangeText={setStudentId}
-        containerStyle={styles.inputField}
-      />
+        <StyledTextInput
+          label="Student ID (Optional, Private)"
+          iconName="id-card-o"
+          placeholder="Enter your student ID"
+          value={studentId}
+          onChangeText={setStudentId}
+          containerStyle={styles.inputField}
+        />
 
-      <PrimaryButton
-        title="Save and Continue"
-        onPress={handleCompleteProfile}
-        isLoading={isSubmitting || authIsLoading}
-        buttonStyle={styles.submitButton}
-      />
-    </AuthScreenLayout>
+        <PrimaryButton
+          title="Save and Continue"
+          onPress={handleCompleteProfile}
+          isLoading={isSubmitting || authIsLoading}
+          buttonStyle={styles.submitButton}
+        />
+      </AuthScreenLayout>
+    </KeyboardAvoidingView>
   );
 }
 

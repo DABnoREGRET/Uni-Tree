@@ -2,7 +2,8 @@ import { FontAwesome } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenWrapper } from '../../components/layouts';
 import { CustomHeader } from '../../components/navigation';
 import { PrimaryButton } from '../../components/ui';
@@ -16,7 +17,7 @@ const getRewardImageSource = (itemName: string, imageUrl: string | null) => {
     switch (itemName) {
       case 'UniTree Seedling Pack':
         return require('../../../assets/images/gift.png');
-      case 'Campus Cafe Coupon':
+      case 'Campus Parking Coupon':
         return require('../../../assets/images/voucher.png');
       default:
         return imageUrl ? { uri: imageUrl } : require('../../../assets/images/gift.png');
@@ -28,6 +29,7 @@ export default function RedeemItemDetailScreen() {
     const { itemId } = useLocalSearchParams<{ itemId: string }>();
     const { rewards, isLoadingRewards, redeemReward } = useAppContext();
     const { userStats, isLoading: isLoadingUserStats, fetchUserData, updateUserPoints } = useUserData();
+    const insets = useSafeAreaInsets();
 
     const [isRedeeming, setIsRedeeming] = useState(false);
     
@@ -102,12 +104,27 @@ export default function RedeemItemDetailScreen() {
     }
     
     const canAfford = currentUserPoints >= reward.points_cost;
+    const isOutOfStock = reward.stock_available !== null && reward.stock_available <= 0;
+
+    const getButtonText = () => {
+        if (isOutOfStock) return 'Out of Stock';
+        if (!canAfford) return 'Not Enough Points';
+        return 'Redeem Now';
+    };
 
     return (
-        <ScreenWrapper applyTopInset={false} style={{ backgroundColor: Colors.background }}>
+        <ScreenWrapper 
+            applyTopInset={false} 
+            withScrollView={false}
+            style={{ backgroundColor: Colors.white }}
+        >
             <StatusBar style="light" />
             <CustomHeader title={reward.name} />
-            <View style={styles.container}>
+
+            <ScrollView 
+                style={styles.container} 
+                contentContainerStyle={{ paddingBottom: 0 }}
+            >
                 <View style={styles.imageContainer}>
                     <Image source={getRewardImageSource(reward.name, reward.image_url)} style={styles.image} />
                 </View>
@@ -124,23 +141,26 @@ export default function RedeemItemDetailScreen() {
                     <Text style={styles.description}>{reward.description}</Text>
 
                     {reward.stock_available !== null && (
-                        <Text style={styles.stockText}>
+                        <Text style={[styles.stockText, isOutOfStock && { color: Colors.errorDark }]}>
                             {reward.stock_available > 0 ? `${reward.stock_available} left in stock` : 'Out of stock'}
                         </Text>
                     )}
+
+                    <TouchableOpacity 
+                        style={[styles.redeemButton, (isOutOfStock || !canAfford) && styles.redeemButtonDisabled]} 
+                        onPress={handleRedeem} 
+                        disabled={isOutOfStock}
+                    >
+                        {isRedeeming ? (
+                            <ActivityIndicator color={Colors.white} />
+                        ) : (
+                            <Text style={styles.redeemButtonText}>
+                                {getButtonText()}
+                            </Text>
+                        )}
+                    </TouchableOpacity>
                 </View>
-            </View>
-            <View style={styles.footer}>
-                <TouchableOpacity 
-                    style={[styles.redeemButton, isRedeeming && styles.redeemButtonDisabled]} 
-                    onPress={handleRedeem} 
-                    disabled={isRedeeming || !canAfford || (reward.stock_available !== null && reward.stock_available <= 0)}
-                >
-                    <Text style={styles.redeemButtonText}>
-                        {isRedeeming ? 'Redeeming...' : 'Redeem Now'}
-                    </Text>
-                </TouchableOpacity>
-            </View>
+            </ScrollView>
         </ScreenWrapper>
     );
 }
@@ -161,6 +181,7 @@ const styles = StyleSheet.create({
     },
     container: {
         flex: 1,
+        backgroundColor: '#ffced3',
     },
     imageContainer: {
         width: '100%',
@@ -174,11 +195,11 @@ const styles = StyleSheet.create({
     },
     detailsContainer: {
         padding: 20,
-        backgroundColor: Colors.background,
+        backgroundColor: '#ffced3',
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
         marginTop: -20,
-        flex: 1,
+        paddingBottom: 40,
     },
     rewardName: {
         fontSize: FontSizes.xxl,
@@ -224,21 +245,18 @@ const styles = StyleSheet.create({
         fontFamily: Fonts.Poppins.Medium,
         color: Colors.error,
         marginTop: 15,
-    },
-    footer: {
-        padding: 20,
-        borderTopWidth: 1,
-        borderTopColor: Colors.grayLight,
-        backgroundColor: Colors.white,
+        marginBottom: 30,
     },
     redeemButton: {
         backgroundColor: Colors.primary,
         padding: 15,
-        borderRadius: 5,
+        borderRadius: 12,
         alignItems: 'center',
+        justifyContent: 'center',
+        height: 52,
     },
     redeemButtonDisabled: {
-        backgroundColor: Colors.grayLight,
+        backgroundColor: Colors.disabled,
     },
     redeemButtonText: {
         fontSize: FontSizes.md,

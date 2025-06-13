@@ -5,6 +5,7 @@ import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Image, Modal, Pressable, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenWrapper } from '../../components/layouts';
+import { UniversalHeader } from '../../components/navigation';
 import { PrimaryButton } from '../../components/ui';
 import { Colors, Fonts, FontSizes } from '../../constants';
 import { TREE_COST_POINTS } from '../../constants/Config';
@@ -17,7 +18,7 @@ const getRewardImageSource = (itemName: string, imageUrl: string | null) => {
   switch (itemName) {
     case 'UniTree Seedling Pack':
       return require('../../../assets/images/gift.png');
-    case 'Campus Cafe Coupon':
+    case 'Campus Parking Coupon':
       return require('../../../assets/images/voucher.png');
     default:
       // Fallback to URL if provided, otherwise a generic placeholder
@@ -143,14 +144,7 @@ export default function RedeemScreen() {
         style={styles.loadingContainer}
       >
         <StatusBar style="dark" />
-        <View
-          style={[
-            styles.customHeader,
-            { paddingTop: insets.top + 15, paddingBottom: 15 },
-          ]}
-        >
-          <Text style={styles.headerTitle}>Redeem Rewards</Text>
-        </View>
+        <UniversalHeader title="Redeem Rewards" />
         <ActivityIndicator size="large" color={Colors.primary} />
         <Text style={styles.loadingText}>Loading Rewards...</Text>
       </ScreenWrapper>
@@ -165,14 +159,7 @@ export default function RedeemScreen() {
         style={styles.errorContainer}
       >
         <StatusBar style="dark" />
-        <View
-          style={[
-            styles.customHeader,
-            { paddingTop: insets.top + 15, paddingBottom: 15 },
-          ]}
-        >
-          <Text style={styles.headerTitle}>Redeem Rewards</Text>
-        </View>
+        <UniversalHeader title="Redeem Rewards" />
         <FontAwesome name="gift" size={50} color={Colors.grayDark} />
         <Text style={styles.errorText}>Could not load rewards.</Text>
         <Text style={styles.errorSubText}>Please check your connection or try again later.</Text>
@@ -186,14 +173,7 @@ export default function RedeemScreen() {
   return (
     <View style={{backgroundColor: Colors.background, flex: 1}}>
       <StatusBar style="light" />
-      <View
-        style={[
-          styles.customHeader,
-          { paddingTop: insets.top + 15, paddingBottom: 25 },
-        ]}
-      >
-        <Text style={styles.headerTitle}>Redeem Rewards</Text>
-      </View>
+      <UniversalHeader title="Redeem Rewards" />
       <FlatList
           data={rewards}
           renderItem={renderItem}
@@ -408,18 +388,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   customHeader: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 20,
+    flexDirection: 'row',
     alignItems: 'center',
-    borderBottomLeftRadius: 25,
-    borderBottomRightRadius: 25,
+    justifyContent: 'center',
+    paddingHorizontal: 15,
+    backgroundColor: Colors.white,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.grayLight,
   },
   headerTitle: {
     fontSize: FontSizes.xl,
-    fontFamily: Fonts.Grandstander.Bold,
-    color: Colors.white,
-    textAlign: 'center',
-    flex: 1,
+    fontFamily: Fonts.Grandstander.SemiBold,
+    color: Colors.text,
   },
   sectionTitle: {
     fontSize: FontSizes.lg,

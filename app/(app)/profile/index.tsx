@@ -149,12 +149,7 @@ export default function ProfileScreen() {
   }
 
   return (
-    <ScreenWrapper 
-      applyTopInset={false}
-      scrollViewProps={{
-        refreshControl: <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[Colors.primary]} />
-      }}
-    >
+    <View style={{ flex: 1, backgroundColor: Colors.background }}>
       <Stack.Screen options={{ title: 'Profile' }} />
       <StatusBar style="light" />
 
@@ -178,33 +173,38 @@ export default function ProfileScreen() {
         )}
         <Text style={styles.userDetails}>{userProfile.email}</Text>
       </View>
+      <ScreenWrapper
+        applyTopInset={false}
+        scrollViewProps={{
+          refreshControl: <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[Colors.primary]} />
+        }}
+      >
+        <View style={styles.statsContainer}>
+          <StatBox label="Total Points" value={formatPoints(userStats.totalPoints)} icon="star" />
+          <StatBox label="Tree Level" value={userStats.treeLevel.toString()} icon="tree" />
+        </View>
 
-      <View style={styles.statsContainer}>
-        <StatBox label="Total Points" value={formatPoints(userStats.totalPoints)} icon="star" />
-        <StatBox label="Tree Level" value={userStats.treeLevel.toString()} icon="tree" />
-      </View>
-
-      <View style={styles.optionsContainer}>
-        {profileOptions.map((option) => (
-          <TouchableOpacity 
-            key={option.id} 
-            style={styles.optionButton} 
-            onPress={option.action} 
-            disabled={authIsLoading && option.id === 'logout'}
-          >
-            { (authIsLoading && option.id === 'logout') ? 
-                <ActivityIndicator size="small" color={option.color || Colors.textLight} style={styles.optionIcon}/> :
-                <FontAwesome name={option.icon as any} size={22} color={option.color || Colors.textLight} style={styles.optionIcon} />
-            }
-            <Text style={[styles.optionText, option.color ? {color: option.color} : {}]}>{option.label}</Text>
-            {option.id !== 'logout' && 
-              <FontAwesome name="chevron-right" size={18} color={Colors.grayDark} />
-            }
-          </TouchableOpacity>
-        ))}
-      </View>
-
-    </ScreenWrapper>
+        <View style={styles.optionsContainer}>
+          {profileOptions.map((option) => (
+            <TouchableOpacity
+              key={option.id}
+              style={styles.optionButton}
+              onPress={option.action}
+              disabled={authIsLoading && option.id === 'logout'}
+            >
+              { (authIsLoading && option.id === 'logout') ?
+                  <ActivityIndicator size="small" color={option.color || Colors.textLight} style={styles.optionIcon}/> :
+                  <FontAwesome name={option.icon as any} size={22} color={option.color || Colors.textLight} style={styles.optionIcon} />
+              }
+              <Text style={[styles.optionText, option.color ? {color: option.color} : {}]}>{option.label}</Text>
+              {option.id !== 'logout' &&
+                <FontAwesome name="chevron-right" size={18} color={Colors.grayDark} />
+              }
+            </TouchableOpacity>
+          ))}
+        </View>
+      </ScreenWrapper>
+    </View>
   );
 }
 

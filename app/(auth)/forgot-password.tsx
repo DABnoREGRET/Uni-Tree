@@ -1,6 +1,6 @@
 import { Link, useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useState } from 'react';
+import { KeyboardAvoidingView, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { AuthScreenLayout } from '../components/layouts';
 import { PrimaryButton, StyledTextInput } from '../components/ui';
 import { Colors, Fonts, FontSizes } from '../constants';
@@ -10,73 +10,106 @@ export default function ForgotPasswordScreen() {
   const router = useRouter();
   const { resetPasswordForEmail, isLoading } = useAuth();
   const [email, setEmail] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
 
-  const handleSendResetLink = async () => {
-    if (!email.trim() || !/\S+@\S+\.\S+/.test(email)) {
-      Alert.alert("Invalid Email", "Please enter a valid email address.");
+  const handlePasswordReset = async () => {
+    if (!email) {
+      setError('Please enter your email address.');
       return;
     }
-    
-    const { error } = await resetPasswordForEmail(email.trim());
-    
-    if (!error) {
-      // Alert for success is shown by the context function itself.
-      // Optionally, navigate back or to login after a short delay, 
-      // or let the user decide.
-      // router.push('/(auth)/login'); 
+    setError('');
+    setSuccessMessage('');
+    setIsProcessing(true);
+
+    try {
+      const { error } = await resetPasswordForEmail(email);
+      if (error) {
+        setError(error.message);
+      } else {
+        setSuccessMessage('An email has been sent with a password reset link.');
+        // router.back(); // Keep the user on the page to see the message
+      }
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setIsProcessing(false);
     }
-    // Error alert is also handled by the context function.
   };
 
   return (
-    <AuthScreenLayout
-      topTitle="Forgot Password?"
-      topSubtitle="No worries, we'll help you reset it!"
-      formTitle="Reset Password"
-      showMascot={false}
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={{ flex: 1 }}
     >
-      <Text style={styles.instructionText}>
-        Enter the email address associated with your account and we&#39;ll send you a link to reset your password.
-      </Text>
+      <AuthScreenLayout
+        topTitle="Forgot Your"
+        topSubtitle="Password?"
+        formTitle="Reset Password"
+        showMascot={true}
+        mascotImageSource={require('../../assets/images/error_mascot.png')}
+        showBackButton={true}
+        onBackPress={() => router.back()}
+      >
+        <Text style={styles.infoText}>
+          Enter the email address associated with your account, and we&#39;ll send you a link to reset your password.
+        </Text>
 
-      <StyledTextInput
-        iconName="envelope-o"
-        placeholder="Your School Email"
-        keyboardType="email-address"
-        value={email}
-        onChangeText={setEmail}
-        autoCapitalize="none"
-        containerStyle={{ marginBottom: 25 }}
-      />
+        <StyledTextInput
+          label="Email"
+          iconName="envelope-o"
+          placeholder="you@example.com"
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          keyboardType="email-address"
+          containerStyle={styles.inputField}
+          returnKeyType="go"
+          onSubmitEditing={handlePasswordReset}
+          error={error}
+        />
 
-      <PrimaryButton
-        title="Send Reset Link"
-        onPress={handleSendResetLink}
-        isLoading={isLoading}
-        buttonStyle={{width: '100%', marginBottom: 25}}
-      />
+        <PrimaryButton
+          title="Send Reset Link"
+          onPress={handlePasswordReset}
+          isLoading={isProcessing || isLoading}
+          buttonStyle={styles.resetButton}
+          textStyle={styles.resetButtonText}
+        />
 
-      <View style={styles.loginLinkContainer}>
-        <Text style={styles.rememberedPasswordText}>Remembered your password? </Text>
-        <Link href="/(auth)/login" asChild>
-          <TouchableOpacity>
-            <Text style={styles.loginLink}>Login</Text>
-          </TouchableOpacity>
-        </Link>
-      </View>
-    </AuthScreenLayout>
+        <View style={styles.loginLinkContainer}>
+          <Text style={styles.rememberedPasswordText}>Remembered your password? </Text>
+          <Link href="/(auth)/login" asChild>
+            <TouchableOpacity>
+              <Text style={styles.loginLink}>Login</Text>
+            </TouchableOpacity>
+          </Link>
+        </View>
+      </AuthScreenLayout>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  instructionText: {
-    fontSize: FontSizes.sm + 1,
+  infoText: {
     fontFamily: Fonts.Poppins.Regular,
-    color: Colors.white,
+    fontSize: FontSizes.sm,
+    color: 'white',
     textAlign: 'center',
-    marginBottom: 25,
-    lineHeight: FontSizes.base + 4,
-    paddingHorizontal: 10,
+    marginBottom: 30,
+    lineHeight: 22,
+  },
+  inputField: {
+    marginBottom: 30,
+  },
+  resetButton: {
+    width: '100%',
+    paddingVertical: 12,
+  },
+  resetButtonText: {
+    fontFamily: Fonts.Poppins.SemiBold,
+    fontSize: FontSizes.lg,
   },
   loginLinkContainer: {
     flexDirection: 'row',
@@ -96,5 +129,23 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginLeft: 5,
     textDecorationLine: 'underline',
+  },
+  messageContainer: {
+    minHeight: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  successText: {
+    color: 'green',
+    textAlign: 'center',
+    fontSize: FontSizes.base,
+    fontFamily: Fonts.Poppins.Regular,
+  },
+  errorText: {
+    color: 'red',
+    textAlign: 'center',
+    fontSize: FontSizes.base,
+    fontFamily: Fonts.Poppins.Regular,
   },
 }); 

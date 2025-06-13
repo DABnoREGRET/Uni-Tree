@@ -81,13 +81,6 @@ export default function AppLayout() {
          }} 
        />
        <Tabs.Screen 
-         name="profile/change-password"
-         options={{ 
-           href: null, 
-           headerShown: false, // Will use CustomHeader in the component
-         }} 
-       />
-       <Tabs.Screen 
          name="profile/about"
          options={{
            href: null,
@@ -117,13 +110,6 @@ export default function AppLayout() {
        />
        <Tabs.Screen 
          name="profile/terms-and-service"
-         options={{
-           href: null,
-           headerShown: false, // Will use CustomHeader in the component
-         }} 
-       />
-       <Tabs.Screen 
-         name="profile/edit-profile"
          options={{
            href: null,
            headerShown: false, // Will use CustomHeader in the component

@@ -10,7 +10,6 @@ interface PrimaryButtonProps extends TouchableOpacityProps {
   buttonStyle?: ViewStyle;
   textStyle?: TextStyle;
   icon?: React.ReactNode;
-  hapticFeedback?: boolean;
   accessibilityHint?: string;
 }
 
@@ -22,18 +21,10 @@ const PrimaryButton: React.FC<PrimaryButtonProps> = ({
   buttonStyle,
   textStyle,
   icon,
-  hapticFeedback = true,
   accessibilityHint,
   ...props
 }) => {
   const isDisabled = disabled || isLoading;
-
-  const handlePress = async () => {
-    if (hapticFeedback && !isDisabled) {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
-    onPress();
-  };
 
   return (
     <TouchableOpacity
@@ -42,7 +33,7 @@ const PrimaryButton: React.FC<PrimaryButtonProps> = ({
         isDisabled && styles.buttonDisabled,
         buttonStyle,
       ]}
-      onPress={handlePress}
+      onPress={onPress}
       disabled={isDisabled}
       accessible={true}
       accessibilityRole="button"

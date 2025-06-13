@@ -1,9 +1,9 @@
-import { FontAwesome } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import React, { useRef, useState } from 'react';
-import { Alert, TextInput as RNTextInput, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Platform, TextInput as RNTextInput, StyleSheet, Text, View } from 'react-native';
 import { AuthScreenLayout } from '../components/layouts';
 import { PrimaryButton, StyledTextInput } from '../components/ui';
+import CheckBox from '../components/ui/Checkbox';
 import { Colors, Fonts, FontSizes } from '../constants';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -19,12 +19,14 @@ export default function RegisterScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSigningUp, setIsSigningUp] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [errors, setErrors] = useState({
     username: '',
     email: '',
     studentId: '',
     password: '',
     confirmPassword: '',
+    terms: '',
   });
 
   const emailInputRef = useRef<RNTextInput>(null);
@@ -33,8 +35,7 @@ export default function RegisterScreen() {
   const confirmPasswordInputRef = useRef<RNTextInput>(null);
 
   const validateEmail = (email: string) => {
-    // Basic email validation regex
-    const emailRegex = /^\S+@\S+\.\S+$/;
+    const emailRegex = /^[\w-\.]+@(gmail\.com|fpt\.edu\.vn)$/i;
     return emailRegex.test(email);
   };
 
@@ -51,12 +52,33 @@ export default function RegisterScreen() {
   };
 
   const handleSignUp = async () => {
-    const newErrors = { username: '', email: '', studentId: '', password: '', confirmPassword: '' };
+    const newErrors = { username: '', email: '', studentId: '', password: '', confirmPassword: '', terms: '' };
     let validationFailed = false;
 
-    if (!username || !email || !password || !confirmPassword) {
-      Alert.alert("Registration Failed", "Please fill in all non-optional fields.");
-      return;
+    if (!username) {
+      newErrors.username = 'Username is required.';
+      validationFailed = true;
+    }
+    if (!email) {
+      newErrors.email = 'Email is required.';
+      validationFailed = true;
+    }
+    if (!password) {
+      newErrors.password = 'Password is required.';
+      validationFailed = true;
+    }
+    if (!confirmPassword) {
+      newErrors.confirmPassword = 'Password confirmation is required.';
+      validationFailed = true;
+    }
+    if (!studentId) {
+      newErrors.studentId = 'Student ID is required.';
+      validationFailed = true;
+    }
+
+    if (!termsAccepted) {
+      newErrors.terms = 'You must accept the terms and conditions.';
+      validationFailed = true;
     }
 
     if (studentId && !/^[a-zA-Z0-9]+$/.test(studentId)) {
@@ -70,7 +92,7 @@ export default function RegisterScreen() {
     }
 
     if (!validateEmail(email)) {
-      newErrors.email = "Please enter a valid email address.";
+      newErrors.email = "Please use a @gmail.com or @fpt.edu.vn email.";
       validationFailed = true;
     }
 
@@ -89,7 +111,7 @@ export default function RegisterScreen() {
       return;
     }
     
-    setErrors({ username: '', email: '', studentId: '', password: '', confirmPassword: '' });
+    setErrors({ username: '', email: '', studentId: '', password: '', confirmPassword: '', terms: '' });
     setIsSigningUp(true);
     try {
       const { data, error } = await signUpWithEmail(email, password, username, studentId);
@@ -105,7 +127,8 @@ export default function RegisterScreen() {
         } else if (errorMessage.includes('profiles_student_id_key')) {
             newApiErrors.studentId = 'This Student ID is already registered.';
         } else {
-            Alert.alert("Registration Failed", errorMessage);
+            // Generic error that isn't for a specific field
+            newApiErrors.terms = errorMessage;
         }
         setErrors(newApiErrors);
       } else if (data.user && !data.session) {
@@ -123,126 +146,128 @@ export default function RegisterScreen() {
   };
 
   return (
-    <AuthScreenLayout
-      topTitle=""
-      topSubtitle=""
-      formTitle="Sign Up"
-      showMascot={false}
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={{ flex: 1 }}
     >
-      <View style={styles.formHeaderContainer}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButtonContainer}>
-          <FontAwesome name="arrow-left" size={18} color={Colors.white} />
-          <Text style={styles.backButtonText}>Back to Login</Text>
-        </TouchableOpacity>
-      </View>
+      <AuthScreenLayout
+        topTitle=""
+        topSubtitle=""
+        formTitle="Sign Up"
+        showMascot={false}
+        showBackButton={true}
+        onBackPress={() => router.back()}
+        isSignup={true}
+        topContentSize="small"
+      >
+        <StyledTextInput
+          label="What should we call you?"
+          iconName="user-o"
+          placeholder="e.g., Jane Doe"
+          value={username}
+          onChangeText={setUsername}
+          containerStyle={styles.inputField}
+          returnKeyType="next"
+          onSubmitEditing={() => emailInputRef.current?.focus()}
+          blurOnSubmit={false}
+          maxLength={18}
+          error={errors.username}
+        />
 
-      <StyledTextInput
-        label="What should we call you?"
-        iconName="user-o"
-        placeholder="e.g., Jane Doe"
-        value={username}
-        onChangeText={setUsername}
-        containerStyle={styles.inputField}
-        returnKeyType="next"
-        onSubmitEditing={() => emailInputRef.current?.focus()}
-        blurOnSubmit={false}
-        maxLength={18}
-        error={errors.username}
-      />
+        <StyledTextInput
+          ref={emailInputRef}
+          label="Your School Email"
+          iconName="envelope-o"
+          placeholder="e.g., nameid@fpt.edu.vn"
+          keyboardType="email-address"
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          containerStyle={styles.inputField}
+          returnKeyType="next"
+          onSubmitEditing={() => studentIdInputRef.current?.focus()}
+          blurOnSubmit={false}
+          error={errors.email}
+        />
 
-      <StyledTextInput
-        ref={emailInputRef}
-        label="Your School Email"
-        iconName="envelope-o"
-        placeholder="e.g., nameid@fpt.edu.vn"
-        keyboardType="email-address"
-        value={email}
-        onChangeText={setEmail}
-        autoCapitalize="none"
-        containerStyle={styles.inputField}
-        returnKeyType="next"
-        onSubmitEditing={() => studentIdInputRef.current?.focus()}
-        blurOnSubmit={false}
-        error={errors.email}
-      />
+        <StyledTextInput
+          ref={studentIdInputRef}
+          label="Student ID"
+          iconName="id-card-o"
+          placeholder="e.g., GCH123456"
+          value={studentId}
+          onChangeText={(text) => setStudentId(text.toUpperCase())}
+          autoCapitalize="characters"
+          containerStyle={styles.inputField}
+          returnKeyType="next"
+          onSubmitEditing={() => passwordInputRef.current?.focus()}
+          blurOnSubmit={false}
+          error={errors.studentId}
+        />
 
-      <StyledTextInput
-        ref={studentIdInputRef}
-        label="Student ID"
-        iconName="id-card-o"
-        placeholder="e.g., GCH123456"
-        value={studentId}
-        onChangeText={setStudentId}
-        containerStyle={styles.inputField}
-        returnKeyType="next"
-        onSubmitEditing={() => passwordInputRef.current?.focus()}
-        blurOnSubmit={false}
-        error={errors.studentId}
-      />
+        <StyledTextInput
+          ref={passwordInputRef}
+          label="Password"
+          iconName="lock"
+          placeholder="Password"
+          value={password}
+          onChangeText={setPassword}
+          showPasswordToggle={true}
+          passwordVisible={showPassword}
+          onTogglePasswordVisibility={() => setShowPassword(!showPassword)}
+          containerStyle={styles.inputField}
+          returnKeyType="next"
+          onSubmitEditing={() => confirmPasswordInputRef.current?.focus()}
+          blurOnSubmit={false}
+          error={errors.password}
+        />
 
-      <StyledTextInput
-        ref={passwordInputRef}
-        label="Password"
-        iconName="lock"
-        placeholder="Password"
-        value={password}
-        onChangeText={setPassword}
-        showPasswordToggle={true}
-        passwordVisible={showPassword}
-        onTogglePasswordVisibility={() => setShowPassword(!showPassword)}
-        containerStyle={styles.inputField}
-        returnKeyType="next"
-        onSubmitEditing={() => confirmPasswordInputRef.current?.focus()}
-        blurOnSubmit={false}
-        error={errors.password}
-      />
+        <StyledTextInput
+          ref={confirmPasswordInputRef}
+          label="Confirm Password"
+          iconName="lock"
+          placeholder="Re-enter your password"
+          value={confirmPassword}
+          onChangeText={setConfirmPassword}
+          showPasswordToggle={true}
+          passwordVisible={showConfirmPassword}
+          onTogglePasswordVisibility={() => setShowConfirmPassword(!showConfirmPassword)}
+          containerStyle={styles.inputField}
+          returnKeyType="go"
+          onSubmitEditing={handleSignUp}
+          error={errors.confirmPassword}
+        />
 
-      <StyledTextInput
-        ref={confirmPasswordInputRef}
-        label="Confirm Password"
-        iconName="lock"
-        placeholder="Re-enter your password"
-        value={confirmPassword}
-        onChangeText={setConfirmPassword}
-        showPasswordToggle={true}
-        passwordVisible={showConfirmPassword}
-        onTogglePasswordVisibility={() => setShowConfirmPassword(!showConfirmPassword)}
-        containerStyle={styles.inputField}
-        returnKeyType="go"
-        onSubmitEditing={handleSignUp}
-        error={errors.confirmPassword}
-      />
+        <View style={styles.checkboxContainer}>
+          <CheckBox
+            value={termsAccepted}
+            onValueChange={setTermsAccepted}
+            color={termsAccepted ? Colors.primary : undefined}
+          />
+          <Text style={styles.checkboxLabel}>
+            I agree to the{' '}
+            <Link href="/(auth)/terms-and-service" asChild>
+              <Text style={styles.link}>Terms and Conditions</Text>
+            </Link>
+          </Text>
+        </View>
+        <View style={styles.errorContainer}>
+          {errors.terms ? <Text style={styles.errorText}>{errors.terms}</Text> : null}
+        </View>
 
-      <PrimaryButton
-        title="Sign Up"
-        onPress={handleSignUp}
-        isLoading={isSigningUp || authIsLoading}
-        buttonStyle={styles.signUpButton}
-        textStyle={styles.signUpButtonText}
-      />
-    </AuthScreenLayout>
+        <PrimaryButton
+          title="Sign Up"
+          onPress={handleSignUp}
+          isLoading={isSigningUp || authIsLoading}
+          buttonStyle={styles.signUpButton}
+          textStyle={styles.signUpButtonText}
+        />
+      </AuthScreenLayout>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  formHeaderContainer: {
-    width: '100%',
-    position: 'relative',
-    alignItems: 'flex-start',
-    marginBottom: 5,
-  },
-  backButtonContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 5,
-    marginBottom: 15,
-  },
-  backButtonText: {
-    color: Colors.white,
-    fontSize: FontSizes.sm,
-    fontFamily: Fonts.Poppins.Regular,
-    marginLeft: 6,
-  },
   inputField: {
     marginBottom: 15,
   },
@@ -257,5 +282,34 @@ const styles = StyleSheet.create({
   signUpButtonText: {
     fontSize: FontSizes.lg,
     fontFamily: Fonts.Poppins.SemiBold,
+  },
+  checkboxContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+    marginTop: 10,
+  },
+  checkboxLabel: {
+    marginLeft: 8,
+    fontFamily: Fonts.Poppins.Regular,
+    fontSize: FontSizes.sm,
+    color: Colors.white,
+  },
+  link: {
+    color: Colors.primary,
+    textDecorationLine: 'underline',
+  },
+  errorContainer: {
+    fontFamily: Fonts.Poppins.Medium,
+    minHeight: 0,
+    maxHeight: 30,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  errorText: {
+    color: 'red',
+    textAlign: 'center',
+    fontSize: FontSizes.base,
+    fontFamily: Fonts.Poppins.Regular,
   },
 }); 

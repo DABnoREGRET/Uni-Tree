@@ -1,20 +1,57 @@
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
-import { Alert, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Alert, Linking, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenWrapper } from '../../components/layouts';
 import { CustomHeader } from '../../components/navigation';
 import { Colors, Fonts, FontSizes } from '../../constants';
 import { useAuth } from '../../contexts/AuthContext';
+import { SafeAsyncStorage, STORAGE_KEYS } from '../../utils/asyncStorage';
+import { cancelAllNotifications, requestNotificationPermissions } from '../../utils/notifications';
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { signOut, isLoading: authIsLoading } = useAuth();
+  const { signOut, isLoading: authIsLoading, deleteAccount } = useAuth();
 
   const [isPushNotificationsEnabled, setIsPushNotificationsEnabled] = useState(true);
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    const loadPreferences = async () => {
+      const storedPreference = await SafeAsyncStorage.getItem<boolean>(STORAGE_KEYS.NOTIFICATION_PREFERENCES);
+      if (storedPreference !== null) {
+        setIsPushNotificationsEnabled(storedPreference);
+      }
+    };
+    loadPreferences();
+  }, []);
+
+  const handleTogglePushNotifications = async (value: boolean) => {
+    setIsPushNotificationsEnabled(value);
+    await SafeAsyncStorage.setItem(STORAGE_KEYS.NOTIFICATION_PREFERENCES, value);
+
+    if (value) {
+      const { granted, showSettings } = await requestNotificationPermissions();
+      if (!granted && showSettings) {
+        Alert.alert(
+          "Enable Notifications",
+          "To receive alerts, you need to enable notifications for UniTree in your device settings.",
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Open Settings", onPress: () => Linking.openSettings() }
+          ]
+        );
+      }
+    } else {
+      await cancelAllNotifications();
+      Alert.alert(
+        "Notifications Disabled",
+        "All scheduled reminders and alerts have been cancelled."
+      );
+    }
+  };
 
   const handleLogout = async () => {
     Alert.alert("Logout", "Are you sure you want to logout?", [
@@ -29,23 +66,37 @@ export default function SettingsScreen() {
     ]);
   };
 
+  const handleDeleteAccount = async () => {
+    Alert.alert('Delete Account', 'This action will permanently remove your account and all associated data. This cannot be undone. Do you wish to continue?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          await deleteAccount();
+        },
+      },
+    ]);
+  };
+
   const settingsSections = [
     {
       title: 'Account',
       items: [
-        {
-          id: 'changePassword',
-          label: 'Change Password',
-          type: 'navigate' as const,
-          action: () => router.push('/(app)/profile/change-password'),
-          icon: 'key'
-        },
         {
           id: 'logout',
           label: 'Logout',
           type: 'action' as const,
           action: handleLogout,
           icon: 'sign-out',
+          color: Colors.error
+        },
+        {
+          id: 'deleteAccount',
+          label: 'Delete Account',
+          type: 'action' as const,
+          action: handleDeleteAccount,
+          icon: 'trash',
           color: Colors.error
         }
       ]
@@ -58,7 +109,7 @@ export default function SettingsScreen() {
           label: 'Push Notifications',
           type: 'toggle' as const,
           value: isPushNotificationsEnabled,
-          action: setIsPushNotificationsEnabled,
+          action: handleTogglePushNotifications,
           icon: 'bell-o'
         },
       ],
@@ -111,51 +162,51 @@ export default function SettingsScreen() {
   ];
 
   return (
-    <ScreenWrapper 
-      applyTopInset={false}
-      contentContainerStyle={styles.contentContainer}
-    >
+    <>
       <StatusBar style="dark" />
       <CustomHeader title="Settings" />
-
-      {settingsSections.map((section) => (
-        <View key={section.title} style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>{section.title}</Text>
-          {section.items.map((item) => (
-            <TouchableOpacity 
-              key={item.id} 
-              style={styles.itemContainer} 
-              onPress={() => {
-                if (item.type === 'navigate' && item.action && typeof item.action === 'function') {
-                    (item.action as () => void)(); 
-                }
-              }}
-              activeOpacity={item.type === 'toggle' || item.type === 'info' ? 1 : 0.7}
-              disabled={(item.type === 'toggle' || item.type === 'info') || (item.id === 'logout' && authIsLoading)}
-            >
-              {item.icon && <FontAwesome name={item.icon as any} size={20} color={Colors.textLight} style={styles.itemIcon} />}
-              <Text style={styles.itemLabel}>{item.label}</Text>
-              {item.type === 'toggle' && typeof item.action === 'function' && (
-                <Switch
-                  trackColor={{ false: Colors.grayMedium, true: Colors.primary }} 
-                  thumbColor={item.value ? Colors.white : Colors.grayLight}
-                  ios_backgroundColor={Colors.grayMedium}
-                  onValueChange={item.action as (value: boolean) => void | Promise<void>} 
-                  value={typeof item.value === 'boolean' ? item.value : false} 
-                />
-              )}
-              {item.type === 'navigate' && (
-                <FontAwesome name="chevron-right" size={18} color={Colors.grayDark} />
-              )}
-              {item.type === 'info' && (
-                <Text style={styles.itemValue}>{item.value}</Text>
-              )}
-            </TouchableOpacity>
-          ))}
-        </View>
-      ))}
-
-    </ScreenWrapper>
+      <ScreenWrapper 
+        applyTopInset={false}
+        contentContainerStyle={styles.contentContainer}
+      >
+        {settingsSections.map((section) => (
+          <View key={section.title} style={styles.sectionContainer}>
+            <Text style={styles.sectionTitle}>{section.title}</Text>
+            {section.items.map((item) => (
+              <TouchableOpacity 
+                key={item.id} 
+                style={styles.itemContainer} 
+                onPress={() => {
+                  if ((item.type === 'navigate' || item.type === 'action') && item.action && typeof item.action === 'function') {
+                      (item.action as () => void)(); 
+                  }
+                }}
+                activeOpacity={item.type === 'toggle' || item.type === 'info' ? 1 : 0.7}
+                disabled={(item.type === 'toggle' || item.type === 'info') || ((item.id === 'logout' || item.id === 'deleteAccount') && authIsLoading)}
+              >
+                {item.icon && <FontAwesome name={item.icon as any} size={20} color={Colors.textLight} style={styles.itemIcon} />}
+                <Text style={styles.itemLabel}>{item.label}</Text>
+                {item.type === 'toggle' && typeof item.action === 'function' && (
+                  <Switch
+                    trackColor={{ false: Colors.grayMedium, true: Colors.primary }} 
+                    thumbColor={item.value ? Colors.white : Colors.grayLight}
+                    ios_backgroundColor={Colors.grayMedium}
+                    onValueChange={item.action as (value: boolean) => void | Promise<void>} 
+                    value={typeof item.value === 'boolean' ? item.value : false} 
+                  />
+                )}
+                {item.type === 'navigate' && (
+                  <FontAwesome name="chevron-right" size={18} color={Colors.grayDark} />
+                )}
+                {item.type === 'info' && (
+                  <Text style={styles.itemValue}>{item.value}</Text>
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+        ))}
+      </ScreenWrapper>
+    </>
   );
 }
 

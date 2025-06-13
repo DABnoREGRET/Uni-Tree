@@ -50,7 +50,9 @@ const StyledTextInput = forwardRef<TextInput, StyledTextInputProps>((
           </TouchableOpacity>
         )}
       </View>
-      {!!error && <Text style={styles.errorText}>{error}</Text>}
+      <View style={styles.errorContainer}>
+        {!!error && !!error.trim() && <Text style={styles.errorText}>{error}</Text>}
+      </View>
     </View>
   );
 });
@@ -96,12 +98,15 @@ const styles = StyleSheet.create({
   eyeIconContainer: {
     padding: 5,
   },
+  errorContainer: {
+    minHeight: 20,
+    paddingTop: 6,
+    paddingLeft: 5,
+  },
   errorText: {
     fontSize: FontSizes.sm, 
     fontFamily: Fonts.Poppins.Regular,
     color: Colors.error,
-    marginTop: 6,
-    marginLeft: 5,
   },
 });
 

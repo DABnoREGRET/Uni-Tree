@@ -1,21 +1,30 @@
 import { FontAwesome } from '@expo/vector-icons'; // Or other icon library
-import NetInfo from '@react-native-community/netinfo';
-import * as Haptics from 'expo-haptics';
+import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
+import * as Location from 'expo-location';
 import { Stack, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, AppState, Dimensions, Image, Linking, Platform, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenWrapper } from '../../components/layouts';
 import { Colors, Fonts, FontSizes } from '../../constants';
-import { SCHOOL_WIFI_BSSIDS, SCHOOL_WIFI_SSIDS, TREE_COST_POINTS } from '../../constants/Config';
+import { GEOFENCE_RADIUS, SCHOOL_LOCATION, SCHOOL_WIFI_BSSIDS, SCHOOL_WIFI_SSIDS, TREE_COST_POINTS } from '../../constants/Config';
 import { useUserData } from '../../contexts/UserDataContext';
 import { useConnectionTimer } from '../../hooks/useConnectionTimer';
 import { formatPoints } from '../../utils';
+import { getDistance } from '../../utils/location';
 import { scheduleLocalNotification } from '../../utils/notifications';
 import { getTreeImageForLevel } from '../../utils/treeUtils';
 
-const screenWidth = Dimensions.get("window").width;
+// Limit the width used for scaling so that UI elements don\'t become excessively large on tablets like iPad
+const deviceWidth = Dimensions.get("window").width;
+const screenWidth = Math.min(deviceWidth, 428); // 428 is roughly the width of larger iPhones in points
 
+// Configure NetInfo to fetch SSID on iOS
+if (Platform.OS === 'ios') {
+  NetInfo.configure({
+    shouldFetchWiFiSSID: true,
+  });
+}
 
 interface DailyTimeProgressProps {
   day: string;
@@ -23,8 +32,6 @@ interface DailyTimeProgressProps {
   targetTime: number; // in minutes
   size?: number;
 }
-
-
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -43,6 +50,7 @@ export default function HomeScreen() {
   const [currentSsid, setCurrentSsid] = useState<string | null>(null);
   const [wifiLoading, setWifiLoading] = useState(true);
   const [previousConnectionState, setPreviousConnectionState] = useState<boolean | null>(null);
+  const [connectionMethod, setConnectionMethod] = useState<string | null>(null);
   
   // Use the centralized timer hook
   const { timeConnectedTodayDisplay, pointsToday } = useConnectionTimer();
@@ -50,19 +58,94 @@ export default function HomeScreen() {
   const checkWifiStatus = useCallback(async () => {
     setWifiLoading(true);
     try {
-      const netInfoState = await NetInfo.fetch();
       let isConnectedNow = false;
-      if (netInfoState.isConnected && netInfoState.type === 'wifi' && netInfoState.details) {
-        const { ssid, bssid } = netInfoState.details;
-        setCurrentSsid(ssid || null);
-        const isSchoolSsid = ssid ? SCHOOL_WIFI_SSIDS.includes(ssid) : false;
-        const isSchoolBssid = bssid ? SCHOOL_WIFI_BSSIDS.includes(bssid.toLowerCase()) : false;
-        isConnectedNow = isSchoolSsid || isSchoolBssid;
-        setIsConnectedToSchoolWifi(isConnectedNow);
+      let ssid: string | null = null;
+      let bssid: string | null = null;
+      let reason = '';
+      let netInfoState: NetInfoState | null = null;
+
+      if (Platform.OS === 'ios') {
+        let { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          const { status: newStatus } = await Location.requestForegroundPermissionsAsync();
+          status = newStatus;
+          if (status !== 'granted') {
+            setCurrentSsid(null);
+            setIsConnectedToSchoolWifi(false);
+            setConnectionMethod(null);
+            scheduleLocalNotification({
+              title: "Location Permission Needed",
+              body: "UniTree needs location access to detect school WiFi. Please grant permission in Settings.",
+            });
+          }
+        }
+        if (status === 'granted') {
+          // Activating location services can help in retrieving Wi-Fi details on iOS.
+          netInfoState = await NetInfo.fetch();
+          console.log('[iOS WiFi Check] NetInfo state:', JSON.stringify(netInfoState, null, 2));
+          if (netInfoState.isConnected && netInfoState.type === 'wifi' && netInfoState.details) {
+            ssid = netInfoState.details.ssid || null;
+            bssid = netInfoState.details.bssid || null;
+          }
+        } else {
+          setCurrentSsid(null);
+          setIsConnectedToSchoolWifi(false);
+          setConnectionMethod(null);
+        }
       } else {
-        setIsConnectedToSchoolWifi(false);
-        setCurrentSsid(null);
+        netInfoState = await NetInfo.fetch();
+        if (netInfoState.isConnected && netInfoState.type === 'wifi' && netInfoState.details) {
+          ssid = netInfoState.details.ssid || null;
+          bssid = netInfoState.details.bssid || null;
+        }
       }
+
+      console.log(`[WiFi Check] Detected SSID: ${ssid}, BSSID: ${bssid}`);
+      setCurrentSsid(ssid || null);
+      const lowerCaseSsid = ssid ? ssid.toLowerCase() : null;
+      const lowerCaseSchoolSsids = SCHOOL_WIFI_SSIDS.map(s => s.toLowerCase());
+      const isSchoolSsid = lowerCaseSsid ? lowerCaseSchoolSsids.includes(lowerCaseSsid) : false;
+      const isSchoolBssid = bssid ? SCHOOL_WIFI_BSSIDS.includes(bssid.toLowerCase()) : false;
+      
+      if (isSchoolSsid || isSchoolBssid) {
+        isConnectedNow = true;
+        reason = `WiFi (${ssid || 'details unavailable'})`;
+      }
+
+
+      // --- Geofencing Fallback ---
+      if (!isConnectedNow) {
+        console.log('[Geofence] WiFi check failed, attempting geofence fallback.');
+        try {
+          // Ensure we have permission one last time
+          let { status } = await Location.getForegroundPermissionsAsync();
+          if (status === 'granted') {
+            const currentPosition = await Location.getCurrentPositionAsync({});
+            const distance = getDistance(
+              currentPosition.coords.latitude,
+              currentPosition.coords.longitude,
+              SCHOOL_LOCATION.latitude,
+              SCHOOL_LOCATION.longitude
+            );
+            console.log(`[Geofence] Distance to school: ${distance.toFixed(2)} meters`);
+            if (distance <= GEOFENCE_RADIUS) {
+              isConnectedNow = true;
+              reason = 'Geofence';
+              console.log('[Geofence] User is within the school radius.');
+            } else {
+              console.log('[Geofence] User is outside the school radius.');
+            }
+          } else {
+            console.log('[Geofence] Location permission not granted, cannot perform check.');
+          }
+        } catch (locationError) {
+          console.error('[Geofence] Error getting location for fallback check:', locationError);
+        }
+      }
+      
+      console.log(`[Check] Is School Connected: ${isConnectedNow}, Method: ${reason}`);
+      setIsConnectedToSchoolWifi(isConnectedNow);
+      setConnectionMethod(reason);
 
       // --- Session Management Logic ---
       if (isConnectedNow) {
@@ -100,16 +183,17 @@ export default function HomeScreen() {
       console.error("Silent Check: Failed to check WiFi status:", error);
       if (isConnectedToSchoolWifi) setIsConnectedToSchoolWifi(false);
       if (currentSsid) setCurrentSsid(null);
+      setConnectionMethod(null);
     } finally {
       setWifiLoading(false);
     }
-  }, [sessionStartTime, startWifiSession, endWifiSession, previousConnectionState]);
+  }, [sessionStartTime, startWifiSession, endWifiSession, previousConnectionState, isConnectedToSchoolWifi, currentSsid]);
 
   useEffect(() => {
     checkWifiStatus(); // Initial check
     
     // Subscribe to network state changes
-    const unsubscribe = NetInfo.addEventListener(state => {
+    const unsubscribe = NetInfo.addEventListener((state: NetInfoState) => {
       console.log("Network state changed:", state.type, state.isConnected);
       checkWifiStatus();
     });
@@ -161,8 +245,6 @@ export default function HomeScreen() {
     }
   };
 
-
-
   if (isLoading && !userProfile && !userStats) {
     return (
       <ScreenWrapper withScrollView={false} style={styles.loadingContainer}>
@@ -180,7 +262,7 @@ export default function HomeScreen() {
         <FontAwesome name="exclamation-triangle" size={50} color={Colors.error} />
         <Text style={styles.errorText}>Could not load dashboard data.</Text>
         <Text style={styles.errorSubText}>Please check your connection or try again later.</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={fetchUserData}>
+        <TouchableOpacity style={styles.retryButton} onPress={onRefresh}>
           <Text style={styles.retryButtonText}>Try Again</Text>
         </TouchableOpacity>
       </ScreenWrapper>
@@ -213,46 +295,45 @@ export default function HomeScreen() {
 
       <ScreenWrapper 
         applyTopInset={false}
-        contentContainerStyle={styles.screenWrapperContent}
+        contentContainerStyle={[styles.screenWrapperContent, {paddingBottom: insets.bottom + 90}]}
         scrollViewProps={{
           refreshControl: <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[Colors.primary]} />
         }}
       >
-        {/* WiFi Status - Can be integrated into a card or kept separate */}
+        {/* WiFi Status Section */}
         <View style={styles.wifiStatusContainer}>
           <TouchableOpacity 
             onPress={handleWifiSettingsPress} 
             style={styles.wifiStatusCard}
-            accessible={true}
+            accessible
             accessibilityRole="button"
-            accessibilityLabel={`WiFi status: ${wifiLoading ? "Checking" : isConnectedToSchoolWifi ? "Connected to school WiFi" : "Not connected to school WiFi"}`}
+            accessibilityLabel={`Connection status: ${wifiLoading ? 'Checking' : isConnectedToSchoolWifi ? (connectionMethod === 'Geofence' ? 'On Campus using geofence' : 'Connected via WiFi') : 'Not connected'}`}
             accessibilityHint="Tap to open WiFi settings"
           >
             {wifiLoading ? (
               <ActivityIndicator size="small" color={Colors.primary} style={styles.wifiIcon} />
             ) : (
               <FontAwesome 
-                name={isConnectedToSchoolWifi ? "wifi" : "times-circle"} 
+                name={isConnectedToSchoolWifi ? (connectionMethod === 'Geofence' ? 'map-marker' : 'wifi') : 'times-circle'} 
                 size={FontSizes.lg} 
                 color={isConnectedToSchoolWifi ? Colors.successDark : Colors.errorDark}
                 style={styles.wifiIcon}
               />
             )}
             <Text style={[styles.wifiStatusText, { color: isConnectedToSchoolWifi ? Colors.successDark : Colors.errorDark }]}>
-              {wifiLoading ? "Checking WiFi..." 
-              : isConnectedToSchoolWifi 
-                ? (currentSsid ? `Connected to ${currentSsid}` : `Connected to School WiFi`)
-                : currentSsid ? `Connected to ${currentSsid} (Not School WiFi)` 
-                : "Not connected to WiFi"}
+              {wifiLoading ? 'Checking status...' :
+                isConnectedToSchoolWifi ? (
+                  connectionMethod === 'Geofence' ? 'On Campus (Geofence)' :
+                  connectionMethod || (currentSsid ? `Connected to ${currentSsid}` : 'Connected to School WiFi')
+                ) : (
+                  currentSsid ? `Connected to ${currentSsid} (Not School WiFi)` : 'Not connected'
+                )}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity 
-            onPress={async () => {
-              await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              checkWifiStatus();
-            }} 
+            onPress={checkWifiStatus} 
             style={styles.refreshButton}
-            accessible={true}
+            accessible
             accessibilityRole="button"
             accessibilityLabel="Refresh WiFi status"
             disabled={wifiLoading}
@@ -277,16 +358,14 @@ export default function HomeScreen() {
 
             <TouchableOpacity style={[styles.gridCard, styles.treeStatusCard]} onPress={() => router.push('/(app)/tree')}>
               <View style={styles.cardHeader}>
-                
                 <Text style={styles.cardTitle}>My UniTree</Text>
               </View>
               <Image source={getTreeImageForLevel(userStats?.treeLevel || 1)} style={styles.cardIconImage} />
-
               <Text style={styles.treeLevelText}>Level {userStats.treeLevel}</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Right Column (Points This Week - static) */}
+          {/* Right Column */}
           <View style={styles.rightColumn}>
             <TouchableOpacity style={[styles.gridCard, styles.pointsChartCard]} onPress={() => router.push('/(app)/tree')}>
               <Text style={styles.cardTitle}>Tree Progress</Text>
@@ -303,17 +382,17 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Forest Collection Navigation Card (Full Width) */}
+        {/* Forest Collection Nav Card */}
         <TouchableOpacity style={[styles.gridCard, styles.forestCardFullWidth]} onPress={() => router.push('/(app)/forest')}>
           <FontAwesome name="tree" size={24} color={Colors.white} style={styles.forestIcon} />
           <View style={styles.forestTextContainer}>
-              <Text style={styles.cardTitleWhite}>My Real Forest</Text>
-              <Text style={styles.forestCardText}>View your collection of real trees.</Text>
+            <Text style={styles.cardTitleWhite}>My Real Forest</Text>
+            <Text style={styles.forestCardText}>View your collection of real trees.</Text>
           </View>
           <FontAwesome name="arrow-right" size={20} color={Colors.white} />
         </TouchableOpacity>
-        
-        {/* New Card for Points Earned Today and Time Connected Today */}
+
+        {/* Today's Stats Card */}
         <View style={[styles.gridCard, styles.todayStatsCard]}>
           <Text style={styles.cardTitle}>Today&apos;s Progress</Text>
           <View style={styles.todayStatsContainer}>
@@ -459,7 +538,7 @@ const styles = StyleSheet.create({
   },
   wifiStatusText: {
     fontSize: FontSizes.md,
-    fontFamily: Fonts.Poppins.Medium,
+    fontFamily: Fonts.Poppins.Regular,
   },
   mainContentGrid: {
     flexDirection: 'row',
@@ -530,28 +609,41 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.Poppins.SemiBold,
     color: Colors.text,
   },
-  progressBarContainerSmall: {
-    height: 8, 
-    backgroundColor: Colors.grayLight,
-    borderRadius: 4,
-    overflow: 'hidden',
-    marginVertical: 8,
-    width: '80%',
-  },
-  progressBarSmall: {
-    height: '100%',
-    backgroundColor: Colors.greenProgressBar,
-    borderRadius: 4,
-  },
   pointsChartCard: {
     height: screenWidth * 0.4 + screenWidth * 0.45 + 15,
     padding: 15, 
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  chartStyle: {
-    borderRadius: 8,
-    paddingRight: 0,
+  verticalProgressContainer: {
+    flex: 1,
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  verticalProgressBarTrack: {
+    height: '70%',
+    width: 60,
+    backgroundColor: Colors.grayLight,
+    borderRadius: 30,
+    overflow: 'hidden',
+    marginTop: 10,
+    justifyContent: 'flex-end',
+  },
+  verticalProgressBarFill: {
+    width: '100%',
+    backgroundColor: Colors.greenProgressBar,
+  },
+  progressTextContainer: {
+    marginTop: 15,
+    alignItems: 'center',
+  },
+  progressText: {
+    fontSize: FontSizes.md,
+    fontFamily: Fonts.Grandstander.Bold,
+    color: Colors.primaryDark,
+    marginTop: 5,
   },
   forestCardFullWidth: {
     flexDirection: 'row',
@@ -573,42 +665,6 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.Poppins.Regular,
     color: Colors.white,
     opacity: 0.9,
-  },
-  dayProgressContainer: {
-    alignItems: 'center',
-    marginHorizontal: 5,
-  },
-  dayLabelContainer: {
-    marginBottom: 5,
-  },
-  dayLabel: {
-    fontSize: FontSizes.sm,
-    fontFamily: Fonts.Poppins.Medium,
-    color: Colors.textLight,
-  },
-  progressRingOuter: {
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    overflow: 'hidden',
-  },
-  progressRingInnerFill: {
-    width: '100%',
-    position: 'absolute',
-    bottom: 0,
-  },
-  progressTimeTextContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  progressTimeText: {
-    fontSize: FontSizes.xs,
-    fontFamily: Fonts.Poppins.SemiBold,
-    color: Colors.primaryDark,
   },
   todayStatsCard: {
     flexDirection: 'column',
@@ -643,41 +699,6 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.Poppins.Regular,
     color: Colors.textLighter,
     textTransform: 'uppercase',
-  },
-  verticalProgressContainer: {
-    flex: 1,
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '100%',
-  },
-  verticalProgressBarTrack: {
-    height: '70%',
-    width: 60,
-    backgroundColor: Colors.grayLight,
-    borderRadius: 30,
-    overflow: 'hidden',
-    marginTop: 10,
-    justifyContent: 'flex-end',
-  },
-  verticalProgressBarFill: {
-    width: '100%',
-    backgroundColor: Colors.greenProgressBar,
-  },
-  progressTextContainer: {
-    marginTop: 15,
-    alignItems: 'center',
-  },
-  progressText: {
-    fontSize: FontSizes.md,
-    fontFamily: Fonts.Grandstander.Bold,
-    color: Colors.primaryDark,
-    marginTop: 5,
-  },
-  progressLabel: {
-    fontSize: FontSizes.sm,
-    fontFamily: Fonts.Poppins.Regular,
-    color: Colors.textLighter,
   },
   cardHeader: {
     flexDirection: 'row',

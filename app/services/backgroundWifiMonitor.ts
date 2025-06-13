@@ -3,7 +3,6 @@ import NetInfo from '@react-native-community/netinfo';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import * as TaskManager from 'expo-task-manager';
-import { Platform } from 'react-native';
 import { SCHOOL_WIFI_BSSIDS, SCHOOL_WIFI_SSIDS } from '../constants/Config';
 import { supabase } from './supabase';
 
@@ -90,19 +89,14 @@ TaskManager.defineTask(WIFI_MONITOR_TASK_NAME, async ({ data, error }) => {
 
   try {
     // 1. Fetch current WiFi status
-    const netInfoState = await NetInfo.fetch();
     let currentSsid: string | null = null;
     let currentBssid: string | null = null;
+    const netInfoState = await NetInfo.fetch();
 
-    if (Platform.OS === 'ios') {
-      const location = await Location.getNetworkStateAsync();
-      if(location && location.type === 'wifi') {
-        currentSsid = location.ssid;
-        currentBssid = location.bssid;
-      }
-    }
-    else if (netInfoState.isConnected && netInfoState.type === 'wifi' && netInfoState.details) {
-      currentSsid = netInfoState.details.ssid || null; 
+    if (netInfoState.isConnected && netInfoState.type === 'wifi' && netInfoState.details) {
+      // On iOS, ssid/bssid are only available if the app has the right entitlements
+      // and location services are enabled and authorized.
+      currentSsid = netInfoState.details.ssid || null;
       currentBssid = netInfoState.details.bssid || null;
     }
     
@@ -181,7 +175,14 @@ export async function registerBackgroundWifiMonitor() {
 
   // Request necessary permissions
   const { status: foregroundLocationStatus } = await Location.requestForegroundPermissionsAsync();
-  const { status: backgroundLocationStatus } = await Location.requestBackgroundPermissionsAsync();
+  let { status: backgroundLocationStatus } = await Location.getBackgroundPermissionsAsync();
+  if (backgroundLocationStatus !== 'granted') {
+    const { status: newBackgroundStatus } = await Location.requestBackgroundPermissionsAsync();
+    backgroundLocationStatus = newBackgroundStatus;
+    if (backgroundLocationStatus !== 'granted') {
+      console.warn('Background location permission not granted for WiFi monitoring.');
+    }
+  }
   const { status: notificationStatus } = await Notifications.requestPermissionsAsync();
 
   if (foregroundLocationStatus !== 'granted' || backgroundLocationStatus !== 'granted' || notificationStatus !== 'granted') {

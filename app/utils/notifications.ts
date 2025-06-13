@@ -1,6 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { Colors } from '../constants'; // Assuming Colors is in constants
+import { SafeAsyncStorage, STORAGE_KEYS } from './asyncStorage';
 
 // Configure notification handler for how notifications are handled when app is foregrounded
 Notifications.setNotificationHandler({
@@ -70,7 +71,13 @@ export const scheduleLocalNotification = async ({
   trigger = null, // Changed default trigger to null for immediate display
   identifier,
 }: ScheduleNotificationParams) => {
+  const areNotificationsEnabled = await SafeAsyncStorage.getItem<boolean>(STORAGE_KEYS.NOTIFICATION_PREFERENCES);
 
+  // Defaults to true if the setting is not yet stored.
+  if (areNotificationsEnabled === false) { 
+    console.log('Notifications are disabled by user. Skipping scheduling.');
+    return null;
+  }
 
   try {
     const notificationId = await Notifications.scheduleNotificationAsync({

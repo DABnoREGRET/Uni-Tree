@@ -546,44 +546,45 @@ export const UserDataProvider = ({ children }: { children: ReactNode }) => {
   }, [userStats?.totalSchoolWifiTimeMs]);
 
   const redeemRealTree = async (): Promise<{ success: boolean; message: string }> => {
-    if (!session?.user || !userProfile || !userStats) {
-      return { success: false, message: "User data not loaded or not authenticated." };
-    }
-    if (userStats.totalPoints < TREE_COST_POINTS) {
-      return { success: false, message: `Not enough points! You need ${TREE_COST_POINTS} points.` };
-    }
-    if (userStats.realTreeRedemptionPending) {
-        return { success: false, message: "Redemption request already pending." };
+    if (!session?.user) {
+      const message = "You must be logged in to redeem a tree.";
+      Alert.alert("Authentication Error", message);
+      return { success: false, message };
     }
 
-    setIsLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('request-real-tree', {});
+      console.log('Invoking request-real-tree function...');
+      const { data, error } = await supabase.functions.invoke('request-real-tree');
 
       if (error) {
-        console.error("Error invoking request-real-tree function:", error.message);
-        throw new Error(error.message || "Failed to invoke real tree redemption function.");
+        // This will catch network errors or if the function itself crashes before returning a response.
+        console.error('Error invoking request-real-tree function:', error.message);
+        throw new Error(error.message);
       }
       
-      if (data && data.error) {
-        console.error("request-real-tree function returned an error:", data.error);
-        throw new Error(data.error);
-    }
-
-      if (data && data.success) {
-        await fetchUserData(); 
-        Alert.alert("Success!", data.message || "Your real tree redemption request has been submitted.");
-        return { success: true, message: data.message || "Redemption successful!" };
-      } else {
-        throw new Error("An unexpected response was received from the server.");
+      if (data.error) {
+        // This handles errors returned from within the function's logic (e.g., not enough points).
+        console.error('Error from request-real-tree function:', data.error);
+        Alert.alert("Redemption Failed", data.error);
+        return { success: false, message: data.error };
       }
 
+      console.log('request-real-tree function successful:', data.message);
+      Alert.alert("Success!", "Your request to plant a real tree has been received. The change will be reflected shortly.");
+      
+      // Optimistically update the UI while fresh data is fetched
+      if (userStats) {
+        updateUserPoints(userStats.totalPoints - TREE_COST_POINTS);
+      } else {
+        fetchUserData(); // Fallback to refetch if stats are somehow null
+      }
+
+      return { success: true, message: data.message };
+
     } catch (error: any) {
-      console.error("Error redeeming real tree:", error.message);
-      Alert.alert("Redemption Failed", error.message || "Could not process your request.");
-      return { success: false, message: error.message || "An error occurred." };
-    } finally {
-      setIsLoading(false);
+      console.error('Error redeeming real tree:', error.message);
+      Alert.alert("Error", `An unexpected error occurred: ${error.message}`);
+      return { success: false, message: error.message };
     }
   };
 
@@ -612,11 +613,15 @@ export const UserDataProvider = ({ children }: { children: ReactNode }) => {
   const updateUserPoints = (newTotalPoints: number) => {
     setUserStats(prevStats => {
       if (!prevStats) return null;
+      
+      const newLevel = Math.floor(newTotalPoints / 200) + 1;
+      const newProgress = (newTotalPoints % 200) / 200 * 100;
+      
       return {
         ...prevStats,
         totalPoints: newTotalPoints,
-        treeLevel: Math.floor(newTotalPoints / 200) + 1,
-        treeProgress: (newTotalPoints % 200) / 200 * 100,
+        treeLevel: newLevel,
+        treeProgress: newProgress,
       };
     });
   };

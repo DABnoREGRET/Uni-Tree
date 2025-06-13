@@ -26,19 +26,15 @@ export const useConnectionTimer = () => {
     };
 
     const updateTimer = () => {
-      const now = Date.now();
+      let totalMs = dailyConnectionTimeLog?.totalTimeMs || 0;
       
       if (sessionStartTime) {
-        const loggedMs = dailyConnectionTimeLog?.totalTimeMs || 0;
-        const liveMs = now - (lastLogUpdateTime || sessionStartTime);
-        const totalMs = loggedMs + liveMs;
-        setTimeConnectedTodayDisplay(formatTime(totalMs));
-        setPointsToday(Math.floor(totalMs / 60000));
-      } else {
-        const totalMs = dailyConnectionTimeLog?.totalTimeMs || 0;
-        setTimeConnectedTodayDisplay(formatTime(totalMs));
-        setPointsToday(Math.floor(totalMs / 60000));
+        const liveMs = Date.now() - (lastLogUpdateTime || sessionStartTime);
+        totalMs += liveMs;
       }
+      
+      setTimeConnectedTodayDisplay(formatTime(totalMs));
+      setPointsToday(Math.floor(totalMs / 60000));
     };
 
     // Initial update

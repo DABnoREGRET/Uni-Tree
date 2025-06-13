@@ -21,6 +21,9 @@
           "fetch",
           "processing"
         ]
+      },
+      "entitlements": {
+        "com.apple.developer.networking.wifi-info": true
       }
     },
     "android": {
@@ -36,13 +39,13 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.RECORD_AUDIO"
       ],
-      "package": "com.greenity.UniTree"
+      "package": "com.greenity.UniTree",
+      "softwareKeyboardLayoutMode": "pan"
     },
     "web": {
       "bundler": "metro",
-      "output": "static",
-      "favicon": "./assets/images/favicon.png"
-    },
+      "output": "static"
+        },
     "plugins": [
       "expo-router",
       [

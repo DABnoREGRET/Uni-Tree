@@ -9,5 +9,13 @@ export const SCHOOL_WIFI_BSSIDS = [
   "c2:74:ad:4d:4f:39", "c2:74:ad:4d:4f:45"
 ]; // Fallback BSSID list
 export const POINTS_PER_HOUR = 100;
-export const TREE_COST_POINTS = 2000; 
-export const POINTS_PER_TREE_LEVEL = 200; // Each level requires 200 points 
+export const TREE_COST_POINTS = 2000;
+export const POINTS_PER_TREE_LEVEL = 200; // Each level requires 200 points
+export const MAX_DAILY_TIME_MINUTES = 840; // 8 hours in minutes
+
+// --- Geofencing Fallback ---
+export const SCHOOL_LOCATION = {
+  latitude: 21.023888,
+  longitude: 105.790437,
+};
+export const GEOFENCE_RADIUS = 80; // in meters 
