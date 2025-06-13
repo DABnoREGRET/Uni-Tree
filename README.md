@@ -2,13 +2,13 @@
 
 Welcome to Greenity UniTree, a mobile application designed to foster environmental awareness and community engagement at Greenwich Vietnam, Hanoi Campus. This app gamifies eco-friendly actions, primarily by rewarding students for connecting to the campus Wi-Fi, and allows them to grow a virtual tree and redeem points for real-world tree planting.
 
-This project is built with Expo (React Native) and utilizes Supabase for its backend, including Supabase Auth. Supports email/password authentication. It's designed to be a cross-platform application for both iOS and Android.
+This project is built with Expo (React Native) and utilizes Supabase for its backend (Auth, Database, Storage, Edge Functions). It supports email/password authentication and runs on both iOS and Android.
 
 ## Features ✨
 
 *   **Authentication:** Secure user sign-up, login, and sign-out using Supabase Auth (Email/Password).
 *   **Password Management:** Includes functionality for password recovery and reset.
-*   **Onboarding:** A simple, skippable onboarding flow for first-time users.
+*   **Onboarding & Permissions:** A multi-page onboarding flow that clearly explains required permissions and lets users enable them. Push-notification permission is optional and clearly labelled.
 *   **Home Dashboard:** Displays user's virtual tree level, points, weekly points chart, current Wi-Fi connection status, and quick navigation to other app sections.
 *   **Wi-Fi Connection Tracking:** Automatically detects connection to designated school Wi-Fi (SSID & BSSID based) and tracks connection duration to award points.
 *   **Point System:** Users earn points based on their connection time to campus Wi-Fi.
@@ -22,13 +22,14 @@ This project is built with Expo (React Native) and utilizes Supabase for its bac
     *   View and manage user information (name, student ID).
     *   Upload and update profile avatar (stored in Supabase Storage).
     *   View key stats like total points and tree level.
-*   **In-App Notifications:** System for delivering important updates and alerts to users (e.g., reward redemption, tree level up).
+*   **In-App & Push Notifications (Optional):** System for delivering important updates and alerts (e.g., reward redemption, tree level up). Users can opt-out of push notifications.
 *   **Settings:**
     *   Change account password.
     *   Manage notification preferences (placeholder).
     *   Access legal information (Privacy Policy, Acknowledgements).
     *   View app information (About UniTree, Version).
 *   **Location Services:** (Optional) Used to improve accuracy of Wi-Fi detection on certain platforms.
+*   **Account Deletion:** Users can permanently delete their account (profile data + Supabase Auth user) from the Settings screen.
 
 ## Tech Stack 🛠️
 
@@ -178,3 +179,9 @@ Please ensure your code adheres to the existing coding style and includes tests 
 Apache 2
 
 ---
+
+**Privacy & Permissions**
+
+• Foreground & background location are required solely to read the Wi-Fi SSID/BSSID for point tracking; GPS coordinates are never stored or transmitted.
+• Push notifications are optional – the app functions fully without them.
+• Users can review or revoke any permission later in their device settings.
