@@ -8,14 +8,18 @@ import { ScreenWrapper } from '../../components/layouts';
 import { CustomHeader } from '../../components/navigation';
 import { Colors, Fonts, FontSizes } from '../../constants';
 import { useAuth } from '../../contexts/AuthContext';
+import { useUserData } from '../../contexts/UserDataContext';
+import { registerBackgroundWifiMonitor, unregisterBackgroundWifiMonitor } from '../../services/backgroundWifiMonitor';
 import { SafeAsyncStorage, STORAGE_KEYS } from '../../utils/asyncStorage';
-import { cancelAllNotifications, requestNotificationPermissions } from '../../utils/notifications';
+import { cancelAllNotifications, ensureDailyReminder, requestNotificationPermissions } from '../../utils/notifications';
 
 export default function SettingsScreen() {
   const router = useRouter();
   const { signOut, isLoading: authIsLoading, deleteAccount } = useAuth();
+  const { updateBackgroundMonitoring } = useUserData();
 
   const [isPushNotificationsEnabled, setIsPushNotificationsEnabled] = useState(true);
+  const [isBackgroundMonitoringEnabled, setIsBackgroundMonitoringEnabled] = useState(false);
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
@@ -23,6 +27,10 @@ export default function SettingsScreen() {
       const storedPreference = await SafeAsyncStorage.getItem<boolean>(STORAGE_KEYS.NOTIFICATION_PREFERENCES);
       if (storedPreference !== null) {
         setIsPushNotificationsEnabled(storedPreference);
+      }
+      const storedBg = await SafeAsyncStorage.getItem<boolean>(STORAGE_KEYS.BACKGROUND_MONITORING_ENABLED);
+      if (storedBg !== null) {
+        setIsBackgroundMonitoringEnabled(storedBg);
       }
     };
     loadPreferences();
@@ -34,6 +42,9 @@ export default function SettingsScreen() {
 
     if (value) {
       const { granted, showSettings } = await requestNotificationPermissions();
+      if (granted) {
+        await ensureDailyReminder();
+      }
       if (!granted && showSettings) {
         Alert.alert(
           "Enable Notifications",
@@ -50,6 +61,16 @@ export default function SettingsScreen() {
         "Notifications Disabled",
         "All scheduled reminders and alerts have been cancelled."
       );
+    }
+  };
+
+  const handleToggleBackgroundMonitoring = async (value: boolean) => {
+    setIsBackgroundMonitoringEnabled(value);
+    await updateBackgroundMonitoring(value);
+    if (value) {
+      await registerBackgroundWifiMonitor();
+    } else {
+      await unregisterBackgroundWifiMonitor();
     }
   };
 
@@ -102,7 +123,7 @@ export default function SettingsScreen() {
       ]
     },
     {
-      title: 'Notifications',
+      title: 'App Preferences',
       items: [
         {
           id: 'push',
@@ -111,6 +132,14 @@ export default function SettingsScreen() {
           value: isPushNotificationsEnabled,
           action: handleTogglePushNotifications,
           icon: 'bell-o'
+        },
+        {
+          id: 'bgMonitor',
+          label: 'Background Monitoring',
+          type: 'toggle' as const,
+          value: isBackgroundMonitoringEnabled,
+          action: handleToggleBackgroundMonitoring,
+          icon: 'wifi'
         },
       ],
     },
@@ -147,7 +176,7 @@ export default function SettingsScreen() {
           id: 'version',
           label: 'Version',
           type: 'info' as const,
-          value: '1.0.0',
+          value: '1.0.2',
           icon: 'info-circle'
         },
         {
@@ -182,7 +211,7 @@ export default function SettingsScreen() {
                   }
                 }}
                 activeOpacity={item.type === 'toggle' || item.type === 'info' ? 1 : 0.7}
-                disabled={(item.type === 'toggle' || item.type === 'info') || ((item.id === 'logout' || item.id === 'deleteAccount') && authIsLoading)}
+                disabled={(item.type === 'info') || ((item.id === 'logout' || item.id === 'deleteAccount') && authIsLoading)}
               >
                 {item.icon && <FontAwesome name={item.icon as any} size={20} color={Colors.textLight} style={styles.itemIcon} />}
                 <Text style={styles.itemLabel}>{item.label}</Text>

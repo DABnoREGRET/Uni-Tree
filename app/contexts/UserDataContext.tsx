@@ -3,7 +3,10 @@ import { Alert, AppState } from 'react-native'; // Added Alert for error message
 import { supabase } from '../services/supabase'; // Import Supabase client
 // User type from supabase is available via session.user, explicitly importing User might not be needed unless for specific type hints elsewhere
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { TREE_COST_POINTS } from '../constants/Config';
+import NetInfo from '@react-native-community/netinfo';
+import { SCHOOL_WIFI_BSSIDS, SCHOOL_WIFI_SSIDS } from '../constants/Config';
+import { SafeAsyncStorage, STORAGE_KEYS } from '../utils/asyncStorage';
+import { showOrUpdateWifiNotification } from '../utils/notifications';
 import { useAuth } from './AuthContext';
 
 // Define the structure of user data
@@ -27,7 +30,8 @@ export interface CollectedTree {
 }
 
 interface UserStats {
-  totalPoints: number;
+  totalPoints: number; // Current usable points
+  allTimePoints: number; // Lifetime accumulated points
   treeLevel: number;
   treeProgress: number; // Percentage to next level
   treeName?: string | null;
@@ -49,6 +53,7 @@ export interface LeaderboardEntry {
   avatar_url: string | null;
   total_points: number;
   student_id: string | null;
+  all_time_points: number;
   // tree_level: number; // REMOVED - As tree_level is not reliably on profiles table for leaderboard
 }
 
@@ -72,7 +77,8 @@ interface UserDataContextType {
   sessionStartTime: number | null;
   lastLogUpdateTime: number | null;
   startWifiSession: () => Promise<void>;
-  endWifiSession: () => Promise<void>;
+  endWifiSession: (shouldSync?: boolean) => Promise<void>;
+  updateBackgroundMonitoring: (enabled: boolean) => Promise<void>;
 }
 
 const UserDataContext = createContext<UserDataContextType | undefined>(undefined);
@@ -122,6 +128,17 @@ export const UserDataProvider = ({ children }: { children: ReactNode }) => {
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
   const [lastLogUpdateTime, setLastLogUpdateTime] = useState<number | null>(null);
   const [dailyConnectionTimeLog, setDailyConnectionTimeLog] = useState<{ date: string; totalTimeMs: number } | null>(null);
+  const [backgroundMonitoringEnabled, setBackgroundMonitoringEnabled] = useState<boolean>(false);
+  const [treeCostPoints, setTreeCostPoints] = useState<number>(2000); // Added treeCostPoints state
+
+  // Load background monitor preference
+  useEffect(() => {
+    const loadPreference = async () => {
+      const pref = await SafeAsyncStorage.getItem<boolean>(STORAGE_KEYS.BACKGROUND_MONITORING_ENABLED);
+      setBackgroundMonitoringEnabled(pref === true);
+    };
+    loadPreference();
+  }, []);
 
   const fetchCollectedRealTrees = useCallback(async () => {
     if (!session?.user) {
@@ -163,7 +180,7 @@ export const UserDataProvider = ({ children }: { children: ReactNode }) => {
       const { user } = session;
       console.log("fetchUserData: Fetching data for user:", user.id);
 
-      const { data, error, status } = await supabase
+      const { data: profileData, error: profileError, status } = await supabase
         .from('profiles')
         .select(`
           id,
@@ -171,31 +188,65 @@ export const UserDataProvider = ({ children }: { children: ReactNode }) => {
           email,
           avatar_url,
           total_points,
+          all_time_points,
           real_tree_redemption_pending
         `)
         .eq('id', user.id)
         .single();
 
-      if (error && status !== 406) {
-        throw error;
+      if (profileError && status !== 406) {
+        throw profileError;
       }
 
-      if (data) {
+      // Fetch cost of a real tree from rewards table (category = 'real_tree')
+      let pointsPerTreeLevel = 2000; // sensible default
+      try {
+        const { data: rewardRow, error: rewardError } = await supabase
+          .from('rewards')
+          .select('points_cost')
+          .eq('category', 'real_tree')
+          .eq('is_active', true)
+          .limit(1)
+          .maybeSingle();
+
+        if (rewardError) {
+          console.error('Failed to fetch real tree cost:', rewardError.message);
+        }
+
+        if (rewardRow?.points_cost && rewardRow.points_cost > 0) {
+          pointsPerTreeLevel = rewardRow.points_cost;
+        }
+      } catch (e: any) {
+        console.error('Unexpected error fetching real tree cost:', e.message);
+      }
+
+      // Cache the cost for other calculations
+      setTreeCostPoints(pointsPerTreeLevel);
+
+      // Helper to compute level based on 10-level system
+      const getLevel = (pts: number) => {
+        const perLevel = pointsPerTreeLevel / 10;
+        if (perLevel <= 0) return 1;
+        return Math.floor(pts / perLevel) + 1;
+      };
+
+      if (profileData) {
         setUserProfile({
-          id: data.id,
-          name: data.username || (user.user_metadata?.user_name || user.user_metadata?.full_name || 'Anonymous User'),
-          email: data.email || user.email || 'No email',
+          id: profileData.id,
+          name: profileData.username || (user.user_metadata?.user_name || user.user_metadata?.full_name || 'Anonymous User'),
+          email: profileData.email || user.email || 'No email',
           studentId: user.user_metadata?.student_id || null,
-          avatarUrl: data.avatar_url || user.user_metadata?.avatar_url,
+          avatarUrl: profileData.avatar_url || user.user_metadata?.avatar_url,
         });
         setUserStats({
-          totalPoints: data.total_points ?? 0,
-          treeLevel: Math.floor((data.total_points ?? 0) / 200) + 1,
-          treeProgress: ((data.total_points ?? 0) % 200) / 200 * 100,
+          totalPoints: profileData.total_points ?? 0,
+          allTimePoints: profileData.all_time_points ?? (profileData.total_points ?? 0),
+          treeLevel: getLevel(profileData.total_points ?? 0),
+          treeProgress: ((profileData.total_points ?? 0) % (pointsPerTreeLevel/10)) / (pointsPerTreeLevel/10) * 100,
           treeName: 'My UniTree',
           totalSchoolWifiTimeMs: 0,
           pointsFromWifi: 0,
-          realTreeRedemptionPending: data.real_tree_redemption_pending ?? false,
+          realTreeRedemptionPending: profileData.real_tree_redemption_pending ?? false,
         });
       } else {
         console.warn("fetchUserData: No profile data found for user", user.id, ". Using auth data as fallback.");
@@ -207,7 +258,7 @@ export const UserDataProvider = ({ children }: { children: ReactNode }) => {
             avatarUrl: user.user_metadata?.avatar_url || null,
         });
         setUserStats({ 
-            totalPoints: 0, treeLevel: 1, treeProgress: 0, treeName: 'My First UniTree',
+            totalPoints: 0, allTimePoints: 0, treeLevel: 1, treeProgress: 0, treeName: 'My First UniTree',
             totalSchoolWifiTimeMs: 0, pointsFromWifi: 0, realTreeRedemptionPending: false,
         });
       }
@@ -301,11 +352,22 @@ export const UserDataProvider = ({ children }: { children: ReactNode }) => {
 
     try {
       const lastUpdateTimeStr = await AsyncStorage.getItem(updateKey);
-      const currentTime = await getCurrentInternetTime(); // Can throw
+      let currentTime: number;
+      try {
+        currentTime = await getCurrentInternetTime();
+      } catch (e) {
+        console.warn('[syncAccumulated] Using device time fallback');
+        currentTime = Date.now();
+      }
+      
       // The last update time is either the one from the last sync, or the session start time if this is the first sync.
       const lastUpdateTime = lastUpdateTimeStr ? Number(lastUpdateTimeStr) : Number(sessionStartTimeStr);
       
-      const durationToSync = currentTime - lastUpdateTime;
+      let durationToSync = currentTime - lastUpdateTime;
+      if (durationToSync <= 0) {
+        // Clock skew or fallback mismatch, skip this round
+        return;
+      }
 
       // Only sync to the backend if at least a minute has passed.
       if (durationToSync < 60000) {
@@ -325,25 +387,18 @@ export const UserDataProvider = ({ children }: { children: ReactNode }) => {
 
       // --- If RPC call is successful ---
 
-      // Optimistically update the total points locally for a snappier UI response.
-      const pointsEarned = Math.floor(durationToSync / 60000);
-      if (pointsEarned > 0) {
-        setUserStats(prev => {
-          if (!prev) return null;
-          const newTotalPoints = prev.totalPoints + pointsEarned;
-          return {
-            ...prev,
-            totalPoints: newTotalPoints,
-            treeLevel: Math.floor(newTotalPoints / 200) + 1,
-            treeProgress: (newTotalPoints % 200) / 200 * 100,
-          };
-        });
-      }
+      const wholeMinutesCredited = Math.floor(durationToSync / 60000);
 
-      // 1. Update our local "last update time" marker to now, so we don't credit this time again.
-      await AsyncStorage.setItem(updateKey, String(currentTime));
-      console.log(`[Sync] Successfully credited ${durationToSync}ms.`);
-      
+      // Optimistically update the total points locally for a snappier UI response.
+      const pointsEarned = wholeMinutesCredited;
+
+      // 1. Only advance lastUpdateTime by the credited whole-minutes amount so we keep
+      //    any leftover milliseconds for the next sync instead of losing them.
+      const creditedMs = wholeMinutesCredited * 60000;
+      const newLastUpdateTime = lastUpdateTime + creditedMs;
+      await AsyncStorage.setItem(updateKey, String(newLastUpdateTime));
+      setLastLogUpdateTime(newLastUpdateTime);
+
       // 2. Update the local daily time log, which is used for the stopwatch display.
       const todayStr = await getTodayDateString(); // Can throw
       const storedDailyTime = await AsyncStorage.getItem(dailyLogKey);
@@ -358,42 +413,104 @@ export const UserDataProvider = ({ children }: { children: ReactNode }) => {
       
       // Also update the React state for immediate UI reflection for the stopwatch.
       setDailyConnectionTimeLog(currentDailyTime);
-      setLastLogUpdateTime(currentTime);
 
-      // 3. Re-fetch all user data from the backend to get the new total_points.
-      await fetchUserData();
+      // Optimistically update user stats instead of refetching whole profile.
+      if (pointsEarned > 0) {
+        setUserStats(prev => {
+          if (!prev) return null;
+          const newTotalPoints = prev.totalPoints + pointsEarned;
+          const newAllTimePoints = prev.allTimePoints + pointsEarned;
+          const perLevel = treeCostPoints / 10;
+          return {
+            ...prev,
+            totalPoints: newTotalPoints,
+            allTimePoints: newAllTimePoints,
+            treeLevel: Math.floor(newTotalPoints / perLevel) + 1,
+            treeProgress: (newTotalPoints % perLevel) / perLevel * 100,
+          };
+        });
+      }
 
     } catch (e: any) {
       console.error('[Sync] Sync process failed, will retry on next interval. Error:', e.message);
       // We don't update LAST_LOG_UPDATE_TIME_KEY on failure, so the duration will be included in the next sync attempt.
     }
-  }, [session, fetchUserData]);
+  }, [session, fetchUserData, treeCostPoints]);
 
-  useEffect(() => {
-    if (isAuthenticated && session?.user.id) {
-      fetchUserData();
-      fetchCollectedRealTrees();
-      loadDailyTime();
-      loadSessionStateFromStorage();
-      fetchLeaderboard();
-    } else {
-      setUserProfile(null);
-      setUserStats(null);
-      setLeaderboardData([]);
-      setCollectedRealTrees([]);
-      setDailyConnectionTimeLog(null);
+  // --- WiFi Session Management Functions ---
+
+  const startWifiSession = useCallback(async () => {
+    if (!session?.user) return;
+    const sessionKey = getSessionStartTimeStorageKey(session.user.id);
+    const updateKey = getLastLogUpdateTimeKey(session.user.id);
+    try {
+      let nowNum: number;
+      try {
+        nowNum = await getCurrentInternetTime();
+      } catch (e) {
+        console.warn('[startWifiSession] Falling back to device time due to network error');
+        nowNum = Date.now();
+      }
+      const now = String(nowNum);
+      await AsyncStorage.setItem(sessionKey, now);
+      await AsyncStorage.setItem(updateKey, now);
+      setSessionStartTime(Number(now));
+      setLastLogUpdateTime(Number(now));
+    } catch (e) {
+      console.error("Failed to start wifi session in storage", e);
+    }
+  }, [session]);
+
+  async function endWifiSession(shouldSync?: boolean) {
+    if (!session?.user) return;
+    const sessionKey = getSessionStartTimeStorageKey(session.user.id);
+    const updateKey = getLastLogUpdateTimeKey(session.user.id);
+    try {
+      if (shouldSync) {
+        await syncAccumulatedTimeToBackend();
+      }
+      await AsyncStorage.removeItem(sessionKey);
+      await AsyncStorage.removeItem(updateKey);
       setSessionStartTime(null);
       setLastLogUpdateTime(null);
+    } catch (e) {
+      console.error("Failed to end wifi session in storage", e);
     }
-  }, [isAuthenticated, session]);
+  }
+
+  // --- AppState listener ---
 
   useEffect(() => {
-    const appStateSubscription = AppState.addEventListener('change', (nextAppState) => {
+    const appStateSubscription = AppState.addEventListener('change', async (nextAppState) => {
       if (nextAppState === 'active') {
         console.log('App is active, syncing data...');
+        fetchUserData();
         loadDailyTime();
         loadSessionStateFromStorage();
         syncAccumulatedTimeToBackend();
+        // Reload preference in case toggled in settings while inactive
+        const pref = await SafeAsyncStorage.getItem<boolean>(STORAGE_KEYS.BACKGROUND_MONITORING_ENABLED);
+        setBackgroundMonitoringEnabled(pref === true);
+
+        if (sessionStartTime) {
+          const minutes = Math.floor((Date.now() - sessionStartTime) / 60000);
+          showOrUpdateWifiNotification(minutes);
+        }
+      }
+
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        // Show latest sticky notification before moving to background
+        if (sessionStartTime) {
+          const minutes = Math.floor((Date.now() - sessionStartTime) / 60000);
+          showOrUpdateWifiNotification(minutes);
+        }
+
+        if (!backgroundMonitoringEnabled) {
+          if (sessionStartTime) {
+            console.log('App moved to background and background monitoring OFF. Ending wifi session without sync.');
+            await endWifiSession(false);
+          }
+        }
       }
     });
 
@@ -409,37 +526,7 @@ export const UserDataProvider = ({ children }: { children: ReactNode }) => {
       appStateSubscription.remove();
       clearInterval(intervalId);
     };
-  }, [syncAccumulatedTimeToBackend]); // Add dependency
-
-  const startWifiSession = useCallback(async () => {
-    if (!session?.user) return;
-    const sessionKey = getSessionStartTimeStorageKey(session.user.id);
-    const updateKey = getLastLogUpdateTimeKey(session.user.id);
-    try {
-      const now = String(await getCurrentInternetTime());
-      await AsyncStorage.setItem(sessionKey, now);
-      await AsyncStorage.setItem(updateKey, now);
-      setSessionStartTime(Number(now));
-      setLastLogUpdateTime(Number(now));
-    } catch (e) {
-      console.error("Failed to start wifi session in storage", e);
-    }
-  }, [session]);
-
-  const endWifiSession = useCallback(async () => {
-    if (!session?.user) return;
-    const sessionKey = getSessionStartTimeStorageKey(session.user.id);
-    const updateKey = getLastLogUpdateTimeKey(session.user.id);
-    try {
-      await syncAccumulatedTimeToBackend();
-      await AsyncStorage.removeItem(sessionKey);
-      await AsyncStorage.removeItem(updateKey);
-      setSessionStartTime(null);
-      setLastLogUpdateTime(null);
-    } catch (e) {
-      console.error("Failed to end wifi session in storage", e);
-    }
-  }, [session, syncAccumulatedTimeToBackend]);
+  }, [syncAccumulatedTimeToBackend, backgroundMonitoringEnabled, sessionStartTime, endWifiSession]);
 
   const updateUserProfile = useCallback(async (profileUpdateData: Partial<UserProfile & { tree_name?: string }>) => {
     if (!session?.user) {
@@ -460,7 +547,7 @@ export const UserDataProvider = ({ children }: { children: ReactNode }) => {
           .from('profiles')
           .update(updatePayload)
           .eq('id', session.user.id)
-          .select('id, username, email, avatar_url, total_points, real_tree_redemption_pending')
+          .select('id, username, email, avatar_url, total_points, all_time_points, real_tree_redemption_pending')
           .single();
 
         if (error) throw error;
@@ -477,6 +564,7 @@ export const UserDataProvider = ({ children }: { children: ReactNode }) => {
           setUserStats(prevStats => ({
             ...(prevStats || {} as UserStats),
             totalPoints: updatedProfileData.total_points ?? (prevStats?.totalPoints ?? 0),
+            allTimePoints: updatedProfileData.all_time_points ?? (prevStats?.allTimePoints ?? 0),
             treeLevel: prevStats?.treeLevel ?? 1,
             treeProgress: prevStats?.treeProgress ?? 0,
             treeName: prevStats?.treeName ?? 'My UniTree',
@@ -503,6 +591,7 @@ export const UserDataProvider = ({ children }: { children: ReactNode }) => {
     if (!userStats || !session?.user) return;
     const newTotalTime = userStats.totalSchoolWifiTimeMs + durationMs;
     const newPointsFromWifi = userStats.pointsFromWifi + Math.floor(durationMs / 60000); // 1 point per minute
+    const newAllTimePoints = userStats.allTimePoints + Math.floor(durationMs / 60000);
     const hoursConnected = Math.floor(newTotalTime / 3600000); // Convert ms to hours
     const newTreeProgress = Math.min(hoursConnected, 100); // Cap progress at 100%
     const newLevel = Math.floor(hoursConnected / 100) + 1; // Level up every 100 hours
@@ -510,6 +599,7 @@ export const UserDataProvider = ({ children }: { children: ReactNode }) => {
       ...prev, 
       totalSchoolWifiTimeMs: newTotalTime, 
       pointsFromWifi: newPointsFromWifi,
+      allTimePoints: newAllTimePoints,
       treeProgress: newTreeProgress,
       treeLevel: newLevel
     }) : prev);
@@ -555,36 +645,36 @@ export const UserDataProvider = ({ children }: { children: ReactNode }) => {
     try {
       console.log('Invoking request-real-tree function...');
       const { data, error } = await supabase.functions.invoke('request-real-tree');
-
       if (error) {
-        // This will catch network errors or if the function itself crashes before returning a response.
-        console.error('Error invoking request-real-tree function:', error.message);
-        throw new Error(error.message);
+        throw error;
       }
-      
-      if (data.error) {
-        // This handles errors returned from within the function's logic (e.g., not enough points).
-        console.error('Error from request-real-tree function:', data.error);
-        Alert.alert("Redemption Failed", data.error);
+      if (data?.error) {
+        console.error('request-real-tree responded with logical error:', data.error);
+        Alert.alert('Redemption Failed', data.error);
         return { success: false, message: data.error };
       }
-
       console.log('request-real-tree function successful:', data.message);
-      Alert.alert("Success!", "Your request to plant a real tree has been received. The change will be reflected shortly.");
-      
-      // Optimistically update the UI while fresh data is fetched
-      if (userStats) {
-        updateUserPoints(userStats.totalPoints - TREE_COST_POINTS);
-      } else {
-        fetchUserData(); // Fallback to refetch if stats are somehow null
-      }
+      Alert.alert('Success!', 'Your request to plant a real tree has been received. The change will be reflected shortly.');
+
+      await fetchUserData();
 
       return { success: true, message: data.message };
-
     } catch (error: any) {
-      console.error('Error redeeming real tree:', error.message);
-      Alert.alert("Error", `An unexpected error occurred: ${error.message}`);
-      return { success: false, message: error.message };
+      // Handle HTTP status errors for Functions
+      if (error?.name === 'FunctionsHttpError' && error?.context?.response) {
+        try {
+          const errJson = await error.context.response.json();
+          const errMsg = errJson?.error || 'An error occurred.';
+          console.error('Function HTTP error:', errMsg);
+          Alert.alert('Redemption Failed', errMsg);
+          return { success: false, message: errMsg };
+        } catch {
+          // fallback
+        }
+      }
+      console.error('Error redeeming real tree:', error.message || error);
+      Alert.alert('Error', `An unexpected error occurred: ${error.message || error}`);
+      return { success: false, message: error.message || 'Unknown error' };
     }
   };
 
@@ -600,7 +690,11 @@ export const UserDataProvider = ({ children }: { children: ReactNode }) => {
         throw error;
       }
       if (data) {
-        setLeaderboardData(data as LeaderboardEntry[]);
+        const transformed = (data as any[]).map(row => ({
+          ...row,
+          total_points: row.all_time_points ?? row.total_points, // for backward compatibility
+        })) as LeaderboardEntry[];
+        setLeaderboardData(transformed);
       }
     } catch (error: any) {
       Alert.alert("Error", "Could not fetch leaderboard data. " + error.message);
@@ -614,8 +708,9 @@ export const UserDataProvider = ({ children }: { children: ReactNode }) => {
     setUserStats(prevStats => {
       if (!prevStats) return null;
       
-      const newLevel = Math.floor(newTotalPoints / 200) + 1;
-      const newProgress = (newTotalPoints % 200) / 200 * 100;
+      const perLevel = treeCostPoints / 10;
+      const newLevel = Math.floor(newTotalPoints / perLevel) + 1;
+      const newProgress = (newTotalPoints % perLevel) / perLevel * 100;
       
       return {
         ...prevStats,
@@ -625,6 +720,11 @@ export const UserDataProvider = ({ children }: { children: ReactNode }) => {
       };
     });
   };
+
+  const updateBackgroundMonitoring = useCallback(async (enabled: boolean) => {
+    setBackgroundMonitoringEnabled(enabled);
+    await SafeAsyncStorage.setItem(STORAGE_KEYS.BACKGROUND_MONITORING_ENABLED, enabled);
+  }, []);
 
   const contextValue = React.useMemo(() => ({
     userProfile, 
@@ -647,6 +747,7 @@ export const UserDataProvider = ({ children }: { children: ReactNode }) => {
     dailyConnectionTimeLog,
     startWifiSession,
     endWifiSession,
+    updateBackgroundMonitoring,
   }), [
     userProfile, userStats, leaderboardData, collectedRealTrees,
     isLoading, isLoadingLeaderboard, isLoadingCollectedTrees,
@@ -654,8 +755,48 @@ export const UserDataProvider = ({ children }: { children: ReactNode }) => {
     getConnectedTimeToSchoolWiFi, redeemRealTree, sessionStartTime,
     lastLogUpdateTime, fetchLeaderboard, fetchCollectedRealTrees,
     dailyConnectionTimeLog,
-    startWifiSession, endWifiSession
+    startWifiSession, endWifiSession,
+    updateBackgroundMonitoring
   ]);
+
+  // --- Initial load of daily time & session state ---
+  useEffect(() => {
+    if (session?.user) {
+      fetchUserData();
+      loadDailyTime();
+      loadSessionStateFromStorage();
+    }
+  }, [session?.user]);
+
+  useEffect(() => {
+    if (!session?.user) return;
+
+    // Monitor Wi-Fi connectivity to auto start / stop sessions while app is foregrounded.
+    const unsubscribeNet = NetInfo.addEventListener(state => {
+      let currentSsid: string | null = null;
+      let currentBssid: string | null = null;
+      if (state.isConnected && state.type === 'wifi' && state.details) {
+        // @ts-ignore netinfo typed as any
+        currentSsid = state.details.ssid || null;
+        // @ts-ignore
+        currentBssid = state.details.bssid || null;
+      }
+      const isSchoolSsid = currentSsid ? SCHOOL_WIFI_SSIDS.map(s=>s.toLowerCase()).includes(currentSsid.toLowerCase()) : false;
+      const isSchoolBssid = currentBssid ? SCHOOL_WIFI_BSSIDS.includes(currentBssid.toLowerCase()) : false;
+      const connectedToSchoolWifi = isSchoolSsid || isSchoolBssid;
+
+      if (connectedToSchoolWifi && sessionStartTime === null) {
+        // Start a new session locally; backend credit occurs via periodic sync.
+        startWifiSession();
+      }
+
+      if (!connectedToSchoolWifi && sessionStartTime !== null) {
+        endWifiSession(true); // Sync remaining time
+      }
+    });
+
+    return () => unsubscribeNet();
+  }, [session?.user, sessionStartTime, startWifiSession, endWifiSession]);
 
   return (
     <UserDataContext.Provider value={contextValue}>

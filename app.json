@@ -1,8 +1,9 @@
 {
   "expo": {
-    "name": "greenityUniTree",
+    "name": "UniTree",
     "slug": "greenityunitree",
-    "version": "1.0.0",
+    "version": "1.0.1",
+    "runtimeVersion": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "greenityunitree",
@@ -19,6 +20,9 @@
         "UIBackgroundModes": [
           "location",
           "fetch",
+          "processing",
+          "location",
+          "fetch",
           "processing"
         ]
       },
@@ -31,12 +35,20 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
+      "icon": "./assets/images/icon.png",
       "edgeToEdgeEnabled": true,
       "permissions": [
         "android.permission.ACCESS_NETWORK_STATE",
         "android.permission.ACCESS_WIFI_STATE",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.ACCESS_WIFI_STATE",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
         "android.permission.RECORD_AUDIO"
       ],
       "package": "com.greenity.UniTree",
@@ -45,7 +57,7 @@
     "web": {
       "bundler": "metro",
       "output": "static"
-        },
+    },
     "plugins": [
       "expo-router",
       [
@@ -78,8 +90,6 @@
         "projectId": "9528ff61-884d-46ca-91d4-5867b364f2da"
       }
     },
-    "owner": "ducanhgit",
-    "runtimeVersion": "1.0.0",
     "updates": {
       "url": "https://u.expo.dev/9528ff61-884d-46ca-91d4-5867b364f2da"
     }

@@ -108,6 +108,12 @@ export default function ProfileScreen() {
       action: () => router.push('/(app)/profile/settings'),
     },
     {
+      id: 'redeemHistory',
+      label: 'Redemption History',
+      icon: 'history',
+      action: () => router.push('/(app)/redeem/history'),
+    },
+    {
       id: 'logout',
       label: 'Logout',
       icon: 'sign-out',
@@ -158,7 +164,7 @@ export default function ProfileScreen() {
         { paddingTop: insets.top + 20, paddingBottom: 30 }
       ]}>
         <TouchableOpacity onPress={handleAvatarChange} style={styles.avatarContainer} disabled={isUploadingImage || userDataIsLoading}>
-          <Image source={{ uri: userProfile.avatarUrl || 'https://via.placeholder.com/120/cccccc/FFFFFF?text=User' }} style={styles.avatar} />
+          <Image source={{ uri: (userProfile.avatarUrl?.includes('/svg?') ? userProfile.avatarUrl.replace('/svg?', '/png?') : userProfile.avatarUrl) || 'https://via.placeholder.com/120/cccccc/FFFFFF?text=User' }} style={styles.avatar} />
           <View style={styles.avatarEditIconContainer}>
             {isUploadingImage ? (
               <ActivityIndicator size="small" color={Colors.white} />
@@ -180,7 +186,7 @@ export default function ProfileScreen() {
         }}
       >
         <View style={styles.statsContainer}>
-          <StatBox label="Total Points" value={formatPoints(userStats.totalPoints)} icon="star" />
+          <StatBox label="All Time Points" value={formatPoints(userStats.allTimePoints)} icon="star" />
           <StatBox label="Tree Level" value={userStats.treeLevel.toString()} icon="tree" />
         </View>
 

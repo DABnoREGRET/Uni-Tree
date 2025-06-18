@@ -8,21 +8,27 @@ import { ScreenWrapper } from '../../components/layouts';
 import { UniversalHeader } from '../../components/navigation';
 import { PrimaryButton } from '../../components/ui';
 import { Colors, Fonts, FontSizes } from '../../constants';
-import { TREE_COST_POINTS } from '../../constants/Config';
 import { RewardItem, useAppContext } from '../../contexts/AppContext';
 import { useUserData } from '../../contexts/UserDataContext';
 import { formatPoints } from '../../utils';
 
-// Helper to get local image source based on reward name
-const getRewardImageSource = (itemName: string, imageUrl: string | null) => {
-  switch (itemName) {
-    case 'UniTree Seedling Pack':
-      return require('../../../assets/images/gift.png');
-    case 'Campus Parking Coupon':
+// Helper: prefer the image_url from the database, otherwise fallback by category, else generic placeholder
+const getRewardImageSource = (reward: RewardItem) => {
+  if (reward.image_url) return { uri: reward.image_url };
+
+  // Optional: show category-based default icons
+  switch (reward.category) {
+    case 'voucher':
       return require('../../../assets/images/voucher.png');
-    default:
-      // Fallback to URL if provided, otherwise a generic placeholder
-      return imageUrl ? { uri: imageUrl } : require('../../../assets/images/gift.png'); // Generic gift icon as a final fallback
+    case 'seedling_pack':
+      return require('../../../assets/images/gift.png');
+    default: {
+      const cat = (reward.category || '').toLowerCase();
+      if (cat.includes('tree')) return require('../../../assets/images/tree.png');
+      if (cat.includes('mystery')) return require('../../../assets/images/gift.png');
+      if (cat.includes('voucher') || cat.includes('coupon')) return require('../../../assets/images/voucher.png');
+      return require('../../../assets/images/gift.png');
+    }
   }
 };
 
@@ -31,6 +37,8 @@ export default function RedeemScreen() {
   const { userStats, isLoading: isLoadingUserStats, fetchUserData, redeemRealTree } = useUserData();
   const [refreshing, setRefreshing] = useState(false);
   const [isRedeemingTree, setIsRedeemingTree] = useState(false);
+  const realTreeReward = rewards.find(r => r.category === 'real_tree');
+  const TREE_COST_POINTS = realTreeReward?.points_cost ?? 0;
   const currentUserPoints = userStats?.totalPoints ?? 0;
   const isRedemptionPending = userStats?.realTreeRedemptionPending || false;
   const insets = useSafeAreaInsets();
@@ -53,6 +61,11 @@ export default function RedeemScreen() {
     if (isRedemptionPending) {
         Alert.alert("Request Pending", "Your previous request to plant a real tree is still being processed.");
         return;
+    }
+
+    if (!realTreeReward) {
+      Alert.alert("Unavailable", "Real tree redemption is not available at the moment.");
+      return;
     }
 
     if (currentUserPoints < TREE_COST_POINTS) {
@@ -120,7 +133,7 @@ export default function RedeemScreen() {
         onPress={() => router.push(`/(app)/redeem/${item.id}`)}
       >
         <Image 
-          source={getRewardImageSource(item.name, item.image_url)} 
+          source={getRewardImageSource(item)} 
           style={styles.rewardIcon} 
         />
         <View style={styles.rewardTextContent}>
@@ -175,7 +188,7 @@ export default function RedeemScreen() {
       <StatusBar style="light" />
       <UniversalHeader title="Redeem Rewards" />
       <FlatList
-          data={rewards}
+          data={rewards.filter(item => item.category !== 'real_tree')}
           renderItem={renderItem}
           keyExtractor={item => item.id}
           contentContainerStyle={rewards.length === 0 ? styles.emptyListContentContainer : styles.listContentContainer}
@@ -462,5 +475,5 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.md,
     fontFamily: Fonts.Poppins.Medium,
     color: Colors.textLighter,
-  }
+  },
 }); 

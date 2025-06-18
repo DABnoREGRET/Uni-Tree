@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js'; // Import types directly
 import * as Linking from 'expo-linking';
-import { deleteItemAsync, setItemAsync } from 'expo-secure-store';
+import { deleteItemAsync } from 'expo-secure-store';
 import React, { createContext, ReactNode, useContext, useEffect, useState } from 'react';
 import { Alert, AppState } from 'react-native';
 import { supabase } from '../services/supabase'; // Import only supabase client
@@ -29,7 +29,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Fallback: ensure loading state clears in case of unexpected hangs (e.g., SecureStore failure)
   useEffect(() => {
+    const timeout = setTimeout(() => setIsLoading(false), 6000);
+    return () => clearTimeout(timeout);
+  }, []);
+
+  useEffect(() => {
+    // Remove legacy oversized session entry to avoid SecureStore warnings
+    deleteItemAsync('userSession').catch(() => {});
+
     setIsLoading(true);
     supabase.auth.getSession().then(({ data: { session } }: { data: { session: Session | null } }) => {
       setSession(session);
@@ -55,13 +64,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             // Potentially refresh user data context here if profile info changed
         }
 
-        // Store or remove the session based on its presence
-        if (session) {
-            await setItemAsync('userSession', JSON.stringify(session));
-            await AsyncStorage.setItem('currentUserId', session.user.id);
+        // Supabase client already persists the session via its SecureStore adapter.
+        // Storing the full session JSON (often >2 KB) triggers iOS SecureStore size warnings.
+        // We only keep a lightweight reference to the user ID for quick look-ups.
+        if (session?.user?.id) {
+          await AsyncStorage.setItem('currentUserId', session.user.id);
         } else {
-            await deleteItemAsync('userSession');
-            await AsyncStorage.removeItem('currentUserId');
+          await AsyncStorage.removeItem('currentUserId');
         }
       }
     );
@@ -102,7 +111,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         data: { // This data is stored in auth.users.raw_user_meta_data
           user_name: username, // Will be picked up by handle_new_user trigger
           student_id: studentId,
-          avatar_url: avatarUrl || `https://api.dicebear.com/8.x/initials/svg?seed=${encodeURIComponent(username)}` // Default avatar
+          avatar_url: avatarUrl || `https://api.dicebear.com/8.x/initials/png?seed=${encodeURIComponent(username)}` // Default avatar (PNG for mobile compatibility)
         },
       },
     });

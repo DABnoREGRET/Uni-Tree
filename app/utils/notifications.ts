@@ -80,6 +80,11 @@ export const scheduleLocalNotification = async ({
   }
 
   try {
+    if (identifier) {
+      try {
+        await Notifications.cancelScheduledNotificationAsync(identifier);
+      } catch {}
+    }
     const notificationId = await Notifications.scheduleNotificationAsync({
       identifier,
       content: {
@@ -195,4 +200,43 @@ export const getNotificationTypeColor = (
     case 'alert': return Colors.warning; // Muted orange for read alert
     default: return Colors.textLight;
   }
-}; 
+};
+
+// --- WiFi Sticky Notification Helper ---
+export const WIFI_NOTIFICATION_ID = 'wifi-session-notification';
+
+export async function showOrUpdateWifiNotification(minutes: number) {
+  try {
+    // Dismiss existing
+    await Notifications.dismissNotificationAsync(WIFI_NOTIFICATION_ID).catch(() => {});
+    await Notifications.scheduleNotificationAsync({
+      identifier: WIFI_NOTIFICATION_ID,
+      content: {
+        title: 'UniTree Session Active',
+        body: `Connected for: ${minutes}m`,
+        sticky: true,
+        vibrate: [],
+        data: { type: 'wifi' },
+      },
+      trigger: null,
+    });
+  } catch (e) {
+    console.error('Failed to show wifi notification:', e);
+  }
+}
+
+// Convenience wrapper: schedule a daily reminder at 9:00 AM local time if notifications enabled.
+export async function ensureDailyReminder() {
+  const prefs = await SafeAsyncStorage.getItem<boolean>(STORAGE_KEYS.NOTIFICATION_PREFERENCES);
+  if (prefs === false) return; // user disabled
+
+  const perm = await requestNotificationPermissions();
+  if (!perm.granted) return;
+
+  await scheduleDailyReminder(
+    'Stay connected to grow your UniTree!',
+    'Open UniTree and connect to campus Wi-Fi to earn points today.',
+    9,
+    0,
+  );
+} 

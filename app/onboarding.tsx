@@ -70,7 +70,10 @@ export default function OnboardingScreen() {
   const [fgLocStatus, setFgLocStatus] = useState<PermState>('undetermined');
   const [bgLocStatus, setBgLocStatus] = useState<PermState>('undetermined');
 
-  const allPermissionsGranted = fgLocStatus === 'granted' && bgLocStatus === 'granted';
+  // All permissions are optional; user can proceed regardless of status
+  const allPermissionsGranted = true;
+
+  const [hasAutoRequestedPerms, setHasAutoRequestedPerms] = useState(false);
 
   const refreshPermissionStatuses = async () => {
     const notifPerm = await Notifications.getPermissionsAsync();
@@ -87,18 +90,31 @@ export default function OnboardingScreen() {
     refreshPermissionStatuses();
   }, []);
 
-  const requestAllPermissions = async () => {
-    const notif = await requestNotificationPermissions(true);
-    if (notif.granted) setNotifStatus('granted'); else setNotifStatus('denied');
+  // Automatically prompt for missing permissions when user lands on the permission slide
+  useEffect(() => {
+    const autoRequestMissingPermissions = async () => {
+      // Only run once when we first arrive on the permission slide
+      if (hasAutoRequestedPerms) return;
+      if (currentIndex !== onboardingSlides.length - 1) return;
 
-    const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
-    setFgLocStatus(fgStatus);
+      // Sequentially request the permissions that are still undetermined
+      if (notifStatus === 'undetermined') {
+        await requestSpecificPermission('notif');
+      }
+      if (fgLocStatus === 'undetermined') {
+        await requestSpecificPermission('fgLoc');
+      }
+      if (bgLocStatus === 'undetermined') {
+        await requestSpecificPermission('bgLoc');
+      }
 
-    if (fgStatus === 'granted') {
-      const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
-      setBgLocStatus(bgStatus);
-    }
-  };
+      setHasAutoRequestedPerms(true);
+    };
+    autoRequestMissingPermissions();
+  }, [currentIndex, notifStatus, fgLocStatus, bgLocStatus, hasAutoRequestedPerms]);
+
+  // No longer auto-prompt for the "next" permission because all are optional.
+  const requestNextPermission = async () => {};
 
   const handleNext = async () => {
     if (currentIndex < onboardingSlides.length - 1) {
@@ -108,12 +124,7 @@ export default function OnboardingScreen() {
       if (allPermissionsGranted) {
         await handleGetStarted();
       } else {
-        await requestAllPermissions();
-        // Re-check after requesting
-        const grantedNow = fgLocStatus === 'granted' && bgLocStatus === 'granted';
-        if (grantedNow) {
-          await handleGetStarted();
-        }
+        await requestNextPermission();
       }
     }
   };
@@ -123,23 +134,14 @@ export default function OnboardingScreen() {
   };
 
   const handleGetStarted = async () => {
-    try {
-      // Request permissions in sequence so OS dialogs don't overlap
-      await requestNotificationPermissions(true);
+    // Mark onboarding complete regardless of which permissions the user granted.
+    await saveOnboardingCompleted();
 
-      const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
-      if (fgStatus === 'granted') {
-        await Location.requestBackgroundPermissionsAsync();
-      }
+    // Try to register the background Wi-Fi monitor now that the user has seen the permission page.
+    // This will only succeed if the required permissions were actually granted.
+    registerBackgroundWifiMonitor().catch(() => {});
 
-      // Register background WiFi monitor (handles its own permission checks too)
-      await registerBackgroundWifiMonitor();
-    } catch (err) {
-      console.warn('[Onboarding] Permission request failed:', err);
-    } finally {
-      await saveOnboardingCompleted();
-      router.replace('/(auth)/login');
-    }
+    router.replace('/(auth)/login');
   };
 
   const saveOnboardingCompleted = async () => {
@@ -159,6 +161,40 @@ export default function OnboardingScreen() {
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 50 }).current;
 
+  // Define PermKey type
+  type PermKey = 'notif' | 'fgLoc' | 'bgLoc';
+
+  const requestSpecificPermission = async (key: PermKey) => {
+    try {
+    switch (key) {
+        case 'notif': {
+        const notif = await requestNotificationPermissions(true);
+        setNotifStatus(notif.granted ? 'granted' : 'denied');
+        break;
+        }
+        case 'fgLoc': {
+        const { status: fg } = await Location.requestForegroundPermissionsAsync();
+        setFgLocStatus(fg as PermState);
+        break;
+        }
+        case 'bgLoc': {
+        // On both iOS & Android, background permission requires foreground permission first
+        if (fgLocStatus !== 'granted') {
+          const { status: fg } = await Location.requestForegroundPermissionsAsync();
+          setFgLocStatus(fg as PermState);
+          if (fg !== 'granted') {
+            break; // cannot proceed to background request
+          }
+        }
+        const { status: bg } = await Location.requestBackgroundPermissionsAsync();
+        setBgLocStatus(bg as PermState);
+        break;
+        }
+      }
+    } catch (err) {
+      console.warn('[Onboarding] Permission request failed:', err);
+    }
+  };
 
   const renderItem = ({ item }: { item: OnboardingSlide }) => {
     const isPermissionSlide = item.imageType === 'permissions';
@@ -184,9 +220,6 @@ export default function OnboardingScreen() {
           )}
           {item.imageType === 'image_and_icon' && (
             <View style={styles.combinedImageContainer}>
-              {item.imageSource && (
-                <Image source={item.imageSource} style={styles.mascotImage} resizeMode="contain" />
-              )}
               {item.secondaryIconName && (
                 <FontAwesome
                   name={item.secondaryIconName}
@@ -195,36 +228,16 @@ export default function OnboardingScreen() {
                   style={styles.secondaryIcon}
                 />
               )}
+              {item.imageSource && (
+                <Image source={item.imageSource} style={styles.mascotImage} resizeMode="contain" />
+              )}
             </View>
           )}
           {isPermissionSlide && (
             <View style={styles.permissionListContainer}>
-              {renderPermissionRow(
-                'Push Notifications (Optional)',
-                'Allows UniTree to send study reminders, reward alerts, and important notices. You can say "Don\'t Allow" and still use the app.',
-                notifStatus,
-              )}
-              {renderPermissionRow(
-                'Location (Foreground)',
-                "Required by the operating system so UniTree can read the Wi-Fi name (SSID) and confirm you're on campus. No GPS coordinates are stored.",
-                fgLocStatus,
-              )}
-              {renderPermissionRow(
-                'Location (Background)',
-                'Lets UniTree keep counting your campus Wi-Fi time even if the app is closed. Uses low power and automatically stops when you log out.',
-                bgLocStatus,
-              )}
-              <Text
-                style={{
-                  color: '#FFF',
-                  fontSize: 12,
-                  marginTop: 15,
-                  opacity: 0.8,
-                  textAlign: 'center',
-                }}
-              >
-                You can revoke any permission later in your device settings, but some UniTree features may stop working.
-              </Text>
+              {renderPermissionRow('notif', 'Push Notifications', 'Allows UniTree to send study reminders, reward alerts, and important notices. You can say "Don\'t Allow" and still use the app.', notifStatus)}
+              {renderPermissionRow('fgLoc', 'Location (Foreground)', "Required by the operating system so UniTree can read the Wi-Fi name (SSID) and confirm you're on campus. No GPS coordinates are stored.", fgLocStatus)}
+              {renderPermissionRow('bgLoc', 'Location (Background)', 'Lets UniTree keep counting your campus Wi-Fi time even if the app is closed. Uses low power and automatically stops when you log out.', bgLocStatus)}
             </View>
           )}
         </View>
@@ -236,17 +249,25 @@ export default function OnboardingScreen() {
     );
   };
 
-  const renderPermissionRow = (title: string, subtitle: string, status: PermState) => {
+  const renderPermissionRow = (key: PermKey, title: string, subtitle: string, status: PermState) => {
     const icon = status === 'granted' ? 'check-circle' : status === 'denied' ? 'times-circle' : 'circle-o';
     const color = status === 'granted' ? '#4CAF50' : status === 'denied' ? '#F44336' : '#FFFFFFAA';
     return (
-      <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 10 }}>
-        <FontAwesome name={icon as any} size={24} color={color} style={{ marginRight: 15 }} />
+      <TouchableOpacity
+        onPress={() => requestSpecificPermission(key)}
+        style={styles.permissionCard}
+        activeOpacity={0.85}
+      >
+        <FontAwesome name={icon as any} size={20} color={color} style={{ marginRight: 10 }} />
         <View style={{ flex: 1 }}>
-          <Text style={{ color: '#FFF', fontSize: 18, fontFamily: 'Poppins-SemiBold' }}>{title}</Text>
-          <Text style={{ color: '#FFF', fontSize: 14, opacity: 0.9 }}>{subtitle}</Text>
+          <Text style={{ color: '#FFF', fontSize: 14, fontFamily: 'Poppins-SemiBold', marginBottom: 1 }}>
+            {title}
+          </Text>
+          <Text style={{ color: '#FFF', fontSize: 11, opacity: 0.85 }}>
+            {subtitle}
+          </Text>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -284,9 +305,9 @@ export default function OnboardingScreen() {
             </Text>
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity style={styles.button} onPress={allPermissionsGranted ? handleSkip : requestAllPermissions}>
+          <TouchableOpacity style={styles.button} onPress={handleGetStarted}>
             <Text style={styles.buttonText} numberOfLines={1} adjustsFontSizeToFit>
-              {allPermissionsGranted ? 'Get Started' : 'Continue'}
+              Get Started
             </Text>
           </TouchableOpacity>
         )}
@@ -403,7 +424,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   permissionListContainer: {
-    marginTop: 20, // Push the list a bit lower
+    width: '100%',
+    paddingHorizontal: 20,
+    marginTop: 20, // push permission cards lower
   },
   progressContainer: {
     position: 'absolute',
@@ -412,5 +435,14 @@ const styles = StyleSheet.create({
     right: 0,
     flexDirection: 'row',
     justifyContent: 'center',
+  },
+  permissionCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    marginVertical: 4,
   },
 }); 

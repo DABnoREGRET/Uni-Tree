@@ -1,9 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
+import * as BackgroundTask from 'expo-background-task';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import * as TaskManager from 'expo-task-manager';
+import { Platform } from 'react-native';
 import { SCHOOL_WIFI_BSSIDS, SCHOOL_WIFI_SSIDS } from '../constants/Config';
+import { SafeAsyncStorage, STORAGE_KEYS } from '../utils/asyncStorage';
 import { supabase } from './supabase';
 
 const WIFI_MONITOR_TASK_NAME = 'wifi-monitor-task';
@@ -60,12 +63,23 @@ const formatDuration = (ms: number) => {
 };
 
 const BACKGROUND_NOTIFICATION_ID = 'wifi-session-notification';
+const BACKGROUND_NOTIFICATION_CHANNEL = 'timer-updates';
+
+async function ensureNotificationChannel() {
+  if (Platform.OS !== 'android') return;
+  await Notifications.setNotificationChannelAsync(BACKGROUND_NOTIFICATION_CHANNEL, {
+    name: 'UniTree Timer',
+    importance: Notifications.AndroidImportance.LOW,
+    showBadge: false,
+    sound: undefined,
+  });
+}
 
 // Define the background task
 TaskManager.defineTask(WIFI_MONITOR_TASK_NAME, async ({ data, error }) => {
   if (error) {
     console.error('[Background Task] Error:', error);
-    return;
+    return BackgroundTask.BackgroundTaskResult.Failed;
   }
 
   console.log('[Background Task] Running WiFi monitor...');
@@ -80,7 +94,7 @@ TaskManager.defineTask(WIFI_MONITOR_TASK_NAME, async ({ data, error }) => {
         await AsyncStorage.removeItem(oldSessionKey);
         await AsyncStorage.removeItem('@LastBackgroundUpdateTime');
     }
-    return;
+    return BackgroundTask.BackgroundTaskResult.Failed;
   }
   
   const SESSION_START_TIME_STORAGE_KEY = `@SchoolWifiSessionStartTime_${currentUserId}`;
@@ -100,7 +114,7 @@ TaskManager.defineTask(WIFI_MONITOR_TASK_NAME, async ({ data, error }) => {
       currentBssid = netInfoState.details.bssid || null;
     }
     
-    const isSchoolSsidMatch = currentSsid ? SCHOOL_WIFI_SSIDS.includes(currentSsid) : false;
+    const isSchoolSsidMatch = currentSsid ? SCHOOL_WIFI_SSIDS.map(s=>s.toLowerCase()).includes(currentSsid.toLowerCase()) : false;
     const isSchoolBssidMatch = currentBssid ? SCHOOL_WIFI_BSSIDS.includes(currentBssid.toLowerCase()) : false;
     const isConnectedToSchoolWifi = isSchoolSsidMatch || isSchoolBssidMatch;
 
@@ -132,16 +146,20 @@ TaskManager.defineTask(WIFI_MONITOR_TASK_NAME, async ({ data, error }) => {
         }
         
         // Update the persistent notification
+        await ensureNotificationChannel();
+        // Dismiss previous notification to avoid stacking
+        await Notifications.dismissNotificationAsync(BACKGROUND_NOTIFICATION_ID).catch(() => {});
         const totalSessionTime = now - sessionStartTime;
         await Notifications.scheduleNotificationAsync({
-            identifier: BACKGROUND_NOTIFICATION_ID,
-            content: {
-                title: 'UniTree Session Active',
-                body: `Connected for: ${formatDuration(totalSessionTime)}`,
-                sticky: true,
-                vibrate: [],
-            },
-            trigger: null, // show immediately
+          identifier: BACKGROUND_NOTIFICATION_ID,
+          content: {
+            title: 'UniTree Session Active',
+            body: `Connected for: ${formatDuration(totalSessionTime)}`,
+            sticky: true,
+            vibrate: [],
+            data: { type: 'wifi' },
+          },
+          trigger: null,
         });
       }
     } else { // Not connected to school wifi
@@ -155,7 +173,7 @@ TaskManager.defineTask(WIFI_MONITOR_TASK_NAME, async ({ data, error }) => {
         await AsyncStorage.removeItem(SESSION_START_TIME_STORAGE_KEY);
         await AsyncStorage.removeItem(LAST_LOG_UPDATE_TIME_KEY);
         // Dismiss the persistent notification
-        await Notifications.dismissNotificationAsync(BACKGROUND_NOTIFICATION_ID);
+        await Notifications.dismissNotificationAsync(BACKGROUND_NOTIFICATION_ID).catch(()=>{});
         console.log(`[Background] Session ended. Logged final delta of ${durationDelta}ms.`);
         // Optionally notify user session ended.
       }
@@ -163,48 +181,56 @@ TaskManager.defineTask(WIFI_MONITOR_TASK_NAME, async ({ data, error }) => {
     }
   } catch (e) {
     console.error('[Background Task] Error during WiFi check:', e);
+    return BackgroundTask.BackgroundTaskResult.Failed;
   }
+
+  return BackgroundTask.BackgroundTaskResult.Success;
 });
 
-export async function registerBackgroundWifiMonitor() {
+export async function registerBackgroundWifiMonitor(): Promise<boolean> {
   const isRegistered = await TaskManager.isTaskRegisteredAsync(WIFI_MONITOR_TASK_NAME);
   if (isRegistered) {
     console.log('Background WiFi monitor already registered.');
-    return;
+    await SafeAsyncStorage.setItem(STORAGE_KEYS.BACKGROUND_MONITORING_ENABLED, true);
+    return true;
   }
 
-  // Request necessary permissions
-  const { status: foregroundLocationStatus } = await Location.requestForegroundPermissionsAsync();
-  let { status: backgroundLocationStatus } = await Location.getBackgroundPermissionsAsync();
-  if (backgroundLocationStatus !== 'granted') {
-    const { status: newBackgroundStatus } = await Location.requestBackgroundPermissionsAsync();
-    backgroundLocationStatus = newBackgroundStatus;
-    if (backgroundLocationStatus !== 'granted') {
-      console.warn('Background location permission not granted for WiFi monitoring.');
-    }
-  }
-  const { status: notificationStatus } = await Notifications.requestPermissionsAsync();
+  // Check permissions WITHOUT prompting. We want to avoid showing permission dialogs
+  const { status: foregroundLocationStatus } = await Location.getForegroundPermissionsAsync();
+  const { status: backgroundLocationStatus } = await Location.getBackgroundPermissionsAsync();
+  const { status: notificationStatus } = await Notifications.getPermissionsAsync();
 
-  if (foregroundLocationStatus !== 'granted' || backgroundLocationStatus !== 'granted' || notificationStatus !== 'granted') {
-    console.warn('Permissions not fully granted for background WiFi monitoring.');
-    // Consider alerting the user to go to settings
+  // Only proceed if the user has granted everything already (most likely after the onboarding step)
+  if (foregroundLocationStatus !== 'granted' ||
+      backgroundLocationStatus !== 'granted' ||
+      notificationStatus !== 'granted') {
+    console.log('[BackgroundWifiMonitor] Missing permissions – skipping task registration for now.');
+    return false;
   }
 
-  // Register the task
-  await TaskManager.defineTask(WIFI_MONITOR_TASK_NAME, async ({ data, error }) => {
-    if (error) {
-      console.error('[Background Task] Error:', error);
-      return;
-    }
-    // Task logic remains the same
-  });
-  console.log('Background WiFi monitor registered!');
+  // All permissions are granted – register the task with system scheduler (WorkManager/BGTaskScheduler)
+  try {
+    await BackgroundTask.registerTaskAsync(WIFI_MONITOR_TASK_NAME, {
+      minimumInterval: 10, // in minutes – platform minimum (Android), ignored on iOS but required
+    });
+    console.log('Background WiFi monitor registered with BackgroundTask API.');
+    await SafeAsyncStorage.setItem(STORAGE_KEYS.BACKGROUND_MONITORING_ENABLED, true);
+    return true;
+  } catch (e) {
+    console.error('Failed to register Background WiFi monitor:', e);
+    return false;
+  }
 }
 
 export async function unregisterBackgroundWifiMonitor() {
   const isRegistered = await TaskManager.isTaskRegisteredAsync(WIFI_MONITOR_TASK_NAME);
   if (isRegistered) {
-    await TaskManager.unregisterTaskAsync(WIFI_MONITOR_TASK_NAME);
-    console.log('Background WiFi monitor unregistered.');
+    try {
+      await BackgroundTask.unregisterTaskAsync(WIFI_MONITOR_TASK_NAME);
+      console.log('Background WiFi monitor unregistered.');
+      await SafeAsyncStorage.setItem(STORAGE_KEYS.BACKGROUND_MONITORING_ENABLED, false);
+    } catch (e) {
+      console.error('Failed to unregister Background WiFi monitor:', e);
+    }
   }
 } 

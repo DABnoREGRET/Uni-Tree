@@ -2,15 +2,15 @@ import { FontAwesome } from '@expo/vector-icons';
 import { Stack, useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
-    ActivityIndicator,
-    FlatList,
-    Image,
-    RefreshControl,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  Image,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import ScreenWrapper from '../../components/layouts/ScreenWrapper';
+import { UniversalHeader } from '../../components/navigation';
 import { DefaultImage } from '../../components/ui/DefaultImage';
 import MarqueeText from '../../components/ui/MarqueeText';
 import { Colors, Fonts, FontSizes } from '../../constants';
@@ -25,7 +25,6 @@ export default function LeaderboardScreen() {
     userProfile,
   } = useUserData();
   const [refreshing, setRefreshing] = useState(false);
-  const insets = useSafeAreaInsets();
 
   const loadData = useCallback(async () => {
     try {
@@ -112,49 +111,35 @@ export default function LeaderboardScreen() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: Colors.background }}>
-      <Stack.Screen options={{ headerShown: false }} />
-      <View
-        style={[
-          styles.customHeader,
-          { paddingTop: insets.top + 15, paddingBottom: 15 },
-        ]}
+    <View style={{ flex:1, backgroundColor: Colors.background }}>
+      <UniversalHeader title="Leaderboard" />
+      <ScreenWrapper
+        applyTopInset={false}
+        isFlatList
+        controlsTabBarVisibility
+        flatListProps={{
+          data: leaderboardData,
+          renderItem: renderItem,
+          keyExtractor: (item) => item.user_id.toString(),
+          contentContainerStyle: styles.listContentContainer,
+          ListEmptyComponent: ListEmptyComponent,
+          refreshControl: (
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[Colors.primary]}
+              tintColor={Colors.primary}
+            />
+          ),
+        }}
       >
-        <Text style={styles.headerTitle}>Leaderboard</Text>
-      </View>
-
-      <FlatList
-        data={leaderboardData}
-        renderItem={renderItem}
-        keyExtractor={(item) => item.user_id.toString()}
-        contentContainerStyle={styles.listContentContainer}
-        ListEmptyComponent={ListEmptyComponent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            colors={[Colors.primary]}
-            tintColor={Colors.primary}
-          />
-        }
-      />
+        <Stack.Screen options={{ headerShown: false }} />
+      </ScreenWrapper>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  customHeader: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-    borderBottomLeftRadius: 25,
-    borderBottomRightRadius: 25,
-  },
-  headerTitle: {
-    fontSize: FontSizes.xl,
-    fontFamily: Fonts.Grandstander.Bold,
-    color: Colors.white,
-  },
   listContentContainer: {
     paddingVertical: 10,
     paddingHorizontal: 15,

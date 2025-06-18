@@ -8,6 +8,7 @@ import CustomTabBarButton from './CustomTabBarButton';
 
 const HIDDEN_TAB_ROUTES = [
   'redeem/[itemId]',
+  'redeem/history',
   'profile/settings',
   'notifications/index',
   'forest/index',

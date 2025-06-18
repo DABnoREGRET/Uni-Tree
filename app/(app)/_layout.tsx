@@ -67,6 +67,13 @@ export default function AppLayout() {
          }} 
        />
        <Tabs.Screen 
+         name="redeem/history" 
+         options={{ 
+           href: null, 
+           headerShown: false, // Redeem history will render its own header
+         }} 
+       />
+       <Tabs.Screen 
          name="profile/settings" 
          options={{ 
            href: null, 

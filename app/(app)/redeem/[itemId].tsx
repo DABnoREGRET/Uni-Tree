@@ -12,16 +12,22 @@ import { RewardItem, useAppContext } from '../../contexts/AppContext';
 import { useUserData } from '../../contexts/UserDataContext';
 import { formatPoints } from '../../utils';
 
-// Helper to get local image source based on reward name
-const getRewardImageSource = (itemName: string, imageUrl: string | null) => {
-    switch (itemName) {
-      case 'UniTree Seedling Pack':
-        return require('../../../assets/images/gift.png');
-      case 'Campus Parking Coupon':
-        return require('../../../assets/images/voucher.png');
-      default:
-        return imageUrl ? { uri: imageUrl } : require('../../../assets/images/gift.png');
+// Helper: prefer image_url, otherwise choose by category, else generic
+const getRewardImageSource = (reward: RewardItem) => {
+  if (reward.image_url) return { uri: reward.image_url };
+  switch (reward.category) {
+    case 'voucher':
+      return require('../../../assets/images/voucher.png');
+    case 'seedling_pack':
+      return require('../../../assets/images/gift.png');
+    default: {
+      const cat = (reward.category || '').toLowerCase();
+      if (cat.includes('tree')) return require('../../../assets/images/tree.png');
+      if (cat.includes('mystery')) return require('../../../assets/images/gift.png');
+      if (cat.includes('voucher') || cat.includes('coupon')) return require('../../../assets/images/voucher.png');
+      return require('../../../assets/images/gift.png');
     }
+  }
 };
 
 export default function RedeemItemDetailScreen() {
@@ -126,7 +132,7 @@ export default function RedeemItemDetailScreen() {
                 contentContainerStyle={{ paddingBottom: 0 }}
             >
                 <View style={styles.imageContainer}>
-                    <Image source={getRewardImageSource(reward.name, reward.image_url)} style={styles.image} />
+                    <Image source={getRewardImageSource(reward)} style={styles.image} />
                 </View>
                 
                 <View style={styles.detailsContainer}>
